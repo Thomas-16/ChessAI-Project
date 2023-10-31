@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using static System.Formats.Asn1.AsnWriter;
 using static System.Math;
 
 public class MyBot : IChessBot
@@ -11,7 +10,7 @@ public class MyBot : IChessBot
     const bool useTimer = ChessChallenge.Application.Settings.GameDurationMilliseconds != int.MaxValue;
     const int maxTimePerMove = 100;
     const bool printDebug = true;
-    const bool bookMoves = false;
+    const bool bookMoves = true;
     static int[] pieceValues = { 0, 100, 320, 330, 500, 900, 20000 };
     const ulong whiteTerritoryMask = 0x00000000FFFFFFFF; // The bottom 4 ranks (1-4)
     const ulong blackTerritoryMask = 0xFFFFFFFF00000000; // The top 4 ranks (5-8)
