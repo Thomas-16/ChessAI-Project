@@ -275,7 +275,6 @@ public class MyBot : IChessBot
             float endgameScalingFactor = 1.0f - Clamp(totalPieces / 15f, 0f, 1f);
             mopUpBonus = MathF.Round(mopUpBonus * endgameScalingFactor);
 
-            //score += board.IsWhiteToMove ? mopUpBonus : -mopUpBonus;
             score += mopUpBonus;
         }
 
@@ -556,6 +555,7 @@ public class MyBot : IChessBot
                 }
                 (score, _, canUse) = Search(depthLeft - 1, checkExtensionsLeft, isCaptureOnly, -beta, -alpha);
 
+
                 if (searchCancelled)
                     break;
 
@@ -568,7 +568,6 @@ public class MyBot : IChessBot
                 best = move;
                 alpha = Max(alpha, score);
                 canUseTranspositions = canUse;
-
 
                 if (approximate = beta < alpha) {
                     _killerMoves.Add(move);

@@ -16,8 +16,8 @@ namespace ChessChallenge.Application
     public class ChallengeController
     {
         public const int MAX_PLY_COUNT = 169;
-        const string MYBOT_NAME = "v2.2";
-        const string EVILBOT_NAME = "v1";
+        const string MYBOT_NAME = "v2.3";
+        const string EVILBOT_NAME = "v2.2";
 
         public enum PlayerType
         {
