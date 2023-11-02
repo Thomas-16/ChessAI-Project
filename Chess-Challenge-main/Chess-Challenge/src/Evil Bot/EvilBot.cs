@@ -280,7 +280,6 @@ namespace ChessChallenge.Example
                 float endgameScalingFactor = 1.0f - Clamp(totalPieces / 15f, 0f, 1f);
                 mopUpBonus = MathF.Round(mopUpBonus * endgameScalingFactor);
 
-                //score += board.IsWhiteToMove ? mopUpBonus : -mopUpBonus;
                 score += mopUpBonus;
             }
 
@@ -496,8 +495,8 @@ namespace ChessChallenge.Example
             if (board.IsInCheckmate())
                 return (-32100, default, true);
 
-            if (board.IsDraw() || board.PlyCount == ChessChallenge.Application.ChallengeController.MAX_PLY_COUNT)
-                return (0, default, board.IsInStalemate() || board.IsInsufficientMaterial() || board.PlyCount == ChessChallenge.Application.ChallengeController.MAX_PLY_COUNT);
+            if (board.IsDraw())
+                return (0, default, board.IsInStalemate() || board.IsInsufficientMaterial());
 
             if (depthLeft == 0) {
                 ++depthLeft;
@@ -561,6 +560,7 @@ namespace ChessChallenge.Example
                     }
                     (score, _, canUse) = Search(depthLeft - 1, checkExtensionsLeft, isCaptureOnly, -beta, -alpha);
 
+
                     if (searchCancelled)
                         break;
 
@@ -573,7 +573,6 @@ namespace ChessChallenge.Example
                     best = move;
                     alpha = Max(alpha, score);
                     canUseTranspositions = canUse;
-
 
                     if (approximate = beta < alpha) {
                         _killerMoves.Add(move);

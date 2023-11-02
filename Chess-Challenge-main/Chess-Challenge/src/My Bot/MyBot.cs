@@ -234,34 +234,6 @@ public class MyBot : IChessBot
         bool blackHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, false)) >= 2;
         score += (whiteHasBishopPair ? 20 : 0) - (blackHasBishopPair ? 20 : 0);
 
-        // Space (How to win at Chess P.112) and King Safety
-        //float spaceFactor = CalculateMultiplier(totalPieces, 13, 24);
-
-        //ulong whitePiecesViewInEnemyTerritory = 0;
-        //ulong blackPiecesViewInEnemyTerritory = 0;
-
-        //ulong blackMask = BlendBitboards(blackTerritoryMask, GetKingSurroundingSquares(false), spaceFactor);
-        //ulong whiteMask = BlendBitboards(whiteTerritoryMask, GetKingSurroundingSquares(true), spaceFactor);
-
-        //foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
-        //    if (pieceType == PieceType.None) continue;
-
-        //    while (whitePieces != 0) {
-        //        Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePieces));
-        //        ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
-        //        whitePiecesViewInEnemyTerritory |= attacks & blackMask;
-        //    }
-
-        //    while (blackPieces != 0) {
-        //        Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref blackPieces));
-        //        ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
-        //        blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
-        //    }
-        //}
-
-        //score += (BitboardHelper.GetNumberOfSetBits(whitePiecesViewInEnemyTerritory) - BitboardHelper.GetNumberOfSetBits(blackPiecesViewInEnemyTerritory)) * 14f;
-
-
         // Mop-up Evaluation
         if (isEndEndgame) {
             Square opponentKingSquare = board.IsWhiteToMove ? board.GetKingSquare(false) : board.GetKingSquare(true);
@@ -277,6 +249,38 @@ public class MyBot : IChessBot
 
             score += mopUpBonus;
         }
+
+        // Space (How to win at Chess P.112) and King Safety
+        float spaceFactor = 1 - CalculateMultiplier(totalPieces, 13, 20);
+        if (spaceFactor <= 0f) {
+            ulong whitePiecesViewInEnemyTerritory = 0;
+            ulong blackPiecesViewInEnemyTerritory = 0;
+
+            //ulong blackMask = BlendBitboards(blackTerritoryMask, GetKingSurroundingSquares(false), spaceFactor);
+            //ulong whiteMask = BlendBitboards(whiteTerritoryMask, GetKingSurroundingSquares(true), spaceFactor);
+            ulong blackMask = blackTerritoryMask;
+            ulong whiteMask = whiteTerritoryMask;
+
+            foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
+                if (pieceType == PieceType.None) continue;
+
+                while (whitePieces != 0) {
+                    Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePieces));
+                    ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
+                    whitePiecesViewInEnemyTerritory |= attacks & blackMask;
+                }
+
+                while (blackPieces != 0) {
+                    Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref blackPieces));
+                    ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
+                    blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
+                }
+            }
+
+            score += (BitboardHelper.GetNumberOfSetBits(whitePiecesViewInEnemyTerritory) - BitboardHelper.GetNumberOfSetBits(blackPiecesViewInEnemyTerritory)) * 30f * spaceFactor;
+
+        }
+
 
 
         return (int)Round(board.IsWhiteToMove ? score : -score);
@@ -306,7 +310,6 @@ public class MyBot : IChessBot
 
         return surroundingSquares;
     }
-
     ulong BlendBitboards(ulong bb1, ulong bb2, float weight) {
         if (weight < 0f) return bb1;
         if (weight > 1f) return bb2;
@@ -336,17 +339,16 @@ public class MyBot : IChessBot
 
         return result;
     }
+
     // Calculate the scaling factor based on the number of total pieces
     float CalculateMultiplier(int totalPieces, int min, int max) {
-        // Clamp the total pieces to the defined range
-        totalPieces = Math.Max(min, Math.Min(max, totalPieces));
+        // Ensure totalPieces is within the [min, max] range
+        totalPieces = totalPieces < min ? min : (totalPieces > max ? max : totalPieces);
 
-        // Calculate the interpolation factor (t) based on the number of total pieces
-        float t = (float)(totalPieces - min) / (max - min);
-
-        // Use the lerp function to calculate the scaling factor
-        return Lerp(0f, 1f, t);
+        // Directly return the scaling factor without extra variables
+        return (float)(totalPieces - min) / (max - min);
     }
+
 
     ulong EvaluatePieceSquareTable(ulong[][] table, PieceList pl) {
         ulong value = 0;
@@ -490,8 +492,8 @@ public class MyBot : IChessBot
         if (board.IsInCheckmate())
             return (-32100, default, true);
 
-        if (board.IsDraw() || board.PlyCount == ChessChallenge.Application.ChallengeController.MAX_PLY_COUNT)
-            return (0, default, board.IsInStalemate() || board.IsInsufficientMaterial() || board.PlyCount == ChessChallenge.Application.ChallengeController.MAX_PLY_COUNT);
+        if (board.IsDraw())
+            return (0, default, board.IsInStalemate() || board.IsInsufficientMaterial());
 
         if (depthLeft == 0) {
             ++depthLeft;
@@ -759,6 +761,34 @@ public class MyBot : IChessBot
         }
 
         board.MakeMove(bestMove);
+        ulong whitePiecesViewInEnemyTerritory = 0;
+        ulong blackPiecesViewInEnemyTerritory = 0;
+
+        ulong blackMask = blackTerritoryMask;
+        ulong whiteMask = whiteTerritoryMask;
+
+
+        // TODO: FIX BORKEN CALCULATION
+        foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
+            if (pieceType == PieceType.None) continue;
+
+            ulong whitePiecesBB = board.GetPieceBitboard(pieceType, true);
+            ulong blackPiecesBB = board.GetPieceBitboard(pieceType, false);
+
+            while (whitePiecesBB != 0) {
+                Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePiecesBB));
+                ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
+                whitePiecesViewInEnemyTerritory |= attacks & blackMask;
+            }
+
+            while (blackPiecesBB != 0) {
+                Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePiecesBB));
+                ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
+                blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
+            }
+        }
+        BitboardHelper.VisualizeBitboard(whitePiecesViewInEnemyTerritory);
+
         if (printDebug) {
             Console.WriteLine($"Ply: {board.PlyCount}, Depth: {depth - 1}, Best Move: {bestMove}" +
                 $", Elapsed time: {Math.Round((double)totalSW.ElapsedMilliseconds, 2)}");
