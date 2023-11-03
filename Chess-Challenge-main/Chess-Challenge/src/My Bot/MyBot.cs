@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using static System.Math;
 
 public class MyBot : IChessBot
@@ -12,6 +13,7 @@ public class MyBot : IChessBot
     const bool printDebug = true;
     const bool bookMoves = true;
     static int[] pieceValues = { 0, 100, 320, 330, 500, 900, 20000 };
+    static PieceType[] pieceTypes = { PieceType.None, PieceType.Pawn, PieceType.Knight, PieceType.Bishop, PieceType.Rook, PieceType.Queen, PieceType.King };
     const ulong whiteTerritoryMask = 0x00000000FFFFFFFF; // The bottom 4 ranks (1-4)
     const ulong blackTerritoryMask = 0xFFFFFFFF00000000; // The top 4 ranks (5-8)
     const ulong notAFile = 0xFEFEFEFEFEFEFEFE;
@@ -251,36 +253,36 @@ public class MyBot : IChessBot
         }
 
         // Space (How to win at Chess P.112) and King Safety
-        float spaceFactor = 1 - CalculateMultiplier(totalPieces, 13, 20);
-        if (spaceFactor <= 0f) {
-            ulong whitePiecesViewInEnemyTerritory = 0;
-            ulong blackPiecesViewInEnemyTerritory = 0;
+        //float spaceFactor = 1 - CalculateMultiplier(totalPieces, 13, 20);
+        //if (spaceFactor <= 0f) {
+        //    ulong whitePiecesViewInEnemyTerritory = 0;
+        //    ulong blackPiecesViewInEnemyTerritory = 0;
 
-            //ulong blackMask = BlendBitboards(blackTerritoryMask, GetKingSurroundingSquares(false), spaceFactor);
-            //ulong whiteMask = BlendBitboards(whiteTerritoryMask, GetKingSurroundingSquares(true), spaceFactor);
-            ulong blackMask = blackTerritoryMask;
-            ulong whiteMask = whiteTerritoryMask;
+        //    ulong blackMask = blackTerritoryMask;
+        //    ulong whiteMask = whiteTerritoryMask;
 
-            foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
-                if (pieceType == PieceType.None) continue;
+        //    foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
+        //        if (pieceType == PieceType.None || pieceType == PieceType.King || pieceType == PieceType.Knight || pieceType == PieceType.Pawn) continue;
 
-                while (whitePieces != 0) {
-                    Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePieces));
-                    ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
-                    whitePiecesViewInEnemyTerritory |= attacks & blackMask;
-                }
+        //        ulong whitePiecesBB = board.GetPieceBitboard(pieceType, true);
+        //        ulong blackPiecesBB = board.GetPieceBitboard(pieceType, false);
 
-                while (blackPieces != 0) {
-                    Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref blackPieces));
-                    ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
-                    blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
-                }
-            }
+        //        while (whitePiecesBB != 0) {
+        //            Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePiecesBB));
+        //            ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
+        //            whitePiecesViewInEnemyTerritory |= attacks & blackMask;
+        //        }
 
-            score += (BitboardHelper.GetNumberOfSetBits(whitePiecesViewInEnemyTerritory) - BitboardHelper.GetNumberOfSetBits(blackPiecesViewInEnemyTerritory)) * 30f * spaceFactor;
+        //        while (blackPiecesBB != 0) {
+        //            Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref blackPiecesBB));
+        //            ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
+        //            blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
+        //        }
+        //    }
 
-        }
+        //    score += (BitboardHelper.GetNumberOfSetBits(whitePiecesViewInEnemyTerritory) - BitboardHelper.GetNumberOfSetBits(blackPiecesViewInEnemyTerritory)) * 33f * spaceFactor;
 
+        //}
 
 
         return (int)Round(board.IsWhiteToMove ? score : -score);
@@ -625,7 +627,6 @@ public class MyBot : IChessBot
             }
 
             // Prioritize pawn advances
-            // Define some constants for the opening and endgame
             const float OPENING_PIECES = 25f;
 
             // Calculate endgameT
@@ -658,7 +659,41 @@ public class MyBot : IChessBot
             }
 
             // Add the score from the capture piece type
-            moveScore += 0x0953310 >> 4 * (int)lmove.CapturePieceType & 0xf;
+            //moveScore += 0x0953310 >> 4 * (int)lmove.CapturePieceType & 0xf;
+            //moveScore += pieceValues[(int)lmove.CapturePieceType] / 100f;
+
+            if (capturePiece.PieceType != PieceType.None) {
+                float captureValue = pieceValues[(int)capturePiece.PieceType] / 100f;
+                float attackerValue = pieceValues[(int)movePieceType] / 100f;
+                bool isRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
+
+                // Basic material gain or loss
+                float materialExchange = captureValue - (isRecapture ? attackerValue : 0f);
+
+                // If the capture is not immediately recapturable, add the full value
+                if (!isRecapture) {
+                    moveScore += captureValue;
+                }
+                else {
+                    // If there is a recapture, only add the exchange value if it's positive
+                    if (materialExchange > 0) {
+                        moveScore += materialExchange;
+                    }
+                    else if (materialExchange == 0){
+                        moveScore += materialExchange / 1.3f;
+                    }
+                    // If the exchange is negative, it might still be worth considering the capture
+                    // if it leads to tactical opportunities, but we'll be conservative and add a smaller value.
+                    else {
+                        moveScore += materialExchange / 2f;
+                    }
+                }
+
+                // Encourage captures that are safe (i.e., the capturing piece is not attacked after the capture)
+                if (!board.SquareIsAttackedByOpponent(lmove.StartSquare)) {
+                    moveScore += attackerValue / 6f; // Add a fraction of the attacker's value for safe captures
+                }
+            }
 
             prioritizedMoves[loopvar++] = (moveScore, lmove);
         }
@@ -761,33 +796,6 @@ public class MyBot : IChessBot
         }
 
         board.MakeMove(bestMove);
-        ulong whitePiecesViewInEnemyTerritory = 0;
-        ulong blackPiecesViewInEnemyTerritory = 0;
-
-        ulong blackMask = blackTerritoryMask;
-        ulong whiteMask = whiteTerritoryMask;
-
-
-        // TODO: FIX BORKEN CALCULATION
-        foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
-            if (pieceType == PieceType.None) continue;
-
-            ulong whitePiecesBB = board.GetPieceBitboard(pieceType, true);
-            ulong blackPiecesBB = board.GetPieceBitboard(pieceType, false);
-
-            while (whitePiecesBB != 0) {
-                Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePiecesBB));
-                ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
-                whitePiecesViewInEnemyTerritory |= attacks & blackMask;
-            }
-
-            while (blackPiecesBB != 0) {
-                Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePiecesBB));
-                ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
-                blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
-            }
-        }
-        BitboardHelper.VisualizeBitboard(whitePiecesViewInEnemyTerritory);
 
         if (printDebug) {
             Console.WriteLine($"Ply: {board.PlyCount}, Depth: {depth - 1}, Best Move: {bestMove}" +
