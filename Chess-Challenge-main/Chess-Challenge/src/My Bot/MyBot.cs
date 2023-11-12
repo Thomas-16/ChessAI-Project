@@ -1,9 +1,12 @@
 ﻿using ChessChallenge.API;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using static System.Formats.Asn1.AsnWriter;
 using static System.Math;
 
 public class MyBot : IChessBot
@@ -14,12 +17,15 @@ public class MyBot : IChessBot
     const bool bookMoves = false;
     const bool determinedFirstTwoMoves = false;
 
-    static int[] pieceValues = { 0, 100, 320, 330, 500, 900, 20000 };
-    static PieceType[] pieceTypes = { PieceType.None, PieceType.Pawn, PieceType.Knight, PieceType.Bishop, PieceType.Rook, PieceType.Queen, PieceType.King };
-    const ulong whiteTerritoryMask = 0x00000000FFFFFFFF; // The bottom 4 ranks (1-4)
-    const ulong blackTerritoryMask = 0xFFFFFFFF00000000; // The top 4 ranks (5-8)
-    const ulong notAFile = 0xFEFEFEFEFEFEFEFE;
-    const ulong notHFile = 0x7F7F7F7F7F7F7F7F;
+    static readonly int[] pieceValues = { 0, 100, 320, 330, 500, 900, 20000 };
+    static readonly PieceType[] pieceTypes = { PieceType.None, PieceType.Pawn, PieceType.Knight, PieceType.Bishop, PieceType.Rook, PieceType.Queen, PieceType.King };
+    static readonly ulong whiteTerritoryMask = 0x00000000FFFFFFFF; // The bottom 4 ranks (1-4)
+    static readonly ulong blackTerritoryMask = 0xFFFFFFFF00000000; // The top 4 ranks (5-8)
+    static readonly ulong notAFile = 0xFEFEFEFEFEFEFEFE;
+    static readonly ulong notHFile = 0x7F7F7F7F7F7F7F7F;
+    static readonly int[] passedPawnBonuses = { 0, 600, 400, 250, 150, 75, 75 };
+    static readonly int[] isolatedPawnPenaltyByCount = { 0, -50, -125, -250, -375, -375, -375, -375, -375 };
+    static readonly int[] doubledPawnPenaltyByCount = { 0, -60, -140, -269, -375, -375, -375, -375, -375 };
 
     Entry[] _transpositions = new Entry[16777216];
     static int transCount;
@@ -49,6 +55,20 @@ public class MyBot : IChessBot
                         | ((ulong)1 << new Square("e3").Index)
                         | ((ulong)1 << new Square("d6").Index)
                         | ((ulong)1 << new Square("e6").Index);
+    Square[] whiteCastledKingSquares = {
+        new Square("a1"),
+        new Square("b1"),
+        new Square("c1"),
+        new Square("g1"),
+        new Square("h1")
+    };
+    Square[] blackCastledKingSquares = {
+        new Square("a8"),
+        new Square("b8"),
+        new Square("c8"),
+        new Square("g8"),
+        new Square("h8")
+    };
     // Masks for each file on the chessboard
     static ulong[] files = {
         0x0101010101010101, // File A
@@ -167,26 +187,51 @@ public class MyBot : IChessBot
         return Min(1, endgameWeightSum * 0.04f);
     }
     int EvaluateBoard() {
-        float ownOneMinusEndgameT = OneMinusEndgameT(board, false), otherOneMinusEndgameT = OneMinusEndgameT(board, true),
-              score = 0.0f;
-        foreach (var pl in board.GetAllPieceLists())
-            score += 0b1000010 >> (int)pl.TypeOfPieceInList != 0
-                ? (pl.IsWhitePieceList ? ownOneMinusEndgameT : -otherOneMinusEndgameT) * EvaluatePieceSquareTable(Starts, pl)
-                  + (pl.IsWhitePieceList ? 1.0f - ownOneMinusEndgameT : otherOneMinusEndgameT - 1.0f) * EvaluatePieceSquareTable(Ends, pl)
-                : EvaluatePieceSquareTable(Starts, pl);
+        float ownOneMinusEndgameT = OneMinusEndgameT(board, false);
+        float otherOneMinusEndgameT = OneMinusEndgameT(board, true);
+        float score = 0.0f;
+        float whiteMatScore = 0f;
+        float blackMatScore = 0f;
+
+        foreach (var pieceList in board.GetAllPieceLists()) {
+            float pieceListScore = 0f;
+
+            if (0b1000010 >> (int)pieceList.TypeOfPieceInList != 0) {
+                if (pieceList.IsWhitePieceList) {
+                    pieceListScore += ownOneMinusEndgameT * EvaluatePieceSquareTable(Starts, pieceList);
+                    pieceListScore += (1.0f - ownOneMinusEndgameT) * EvaluatePieceSquareTable(Ends, pieceList);
+                }
+                else {
+                    pieceListScore += -otherOneMinusEndgameT * EvaluatePieceSquareTable(Starts, pieceList);
+                    pieceListScore += (otherOneMinusEndgameT - 1.0f) * EvaluatePieceSquareTable(Ends, pieceList);
+                }
+            }
+            else {
+                pieceListScore += EvaluatePieceSquareTable(Starts, pieceList);
+            }
+
+            if (pieceList.IsWhitePieceList) {
+                whiteMatScore += pieceListScore;
+            }
+            else {
+                blackMatScore += pieceListScore;
+            }
+        }
 
 
-        //ulong whitePieces = board.WhitePiecesBitboard;
-        //ulong blackPieces = board.BlackPiecesBitboard;
+        score += whiteMatScore + blackMatScore;
 
-        //int totalPieces = CountPiecesOnBoard(board);
+        ulong whitePieces = board.WhitePiecesBitboard;
+        ulong blackPieces = board.BlackPiecesBitboard;
 
-        //bool isOpening = totalPieces > 25;
-        //bool isMidgame = totalPieces <= 25 && totalPieces > 15;
-        //bool isEndEndgame = totalPieces < 15;
+        int totalPieces = CountPiecesOnBoard(board);
+
+        bool isOpening = totalPieces > 25;
+        bool isMidgame = totalPieces <= 25 && totalPieces > 13;
+        bool isEndEndgame = totalPieces < 13;
+        bool isWhiteToMove = board.IsWhiteToMove;
 
 
-        //// Center control score can be calculated by counting the number of set bits in the intersection of pieces and center squares
         //int whiteCenterControlScore = BitboardHelper.GetNumberOfSetBits(whitePieces & centerSquares);
         //int blackCenterControlScore = BitboardHelper.GetNumberOfSetBits(blackPieces & centerSquares);
 
@@ -195,63 +240,76 @@ public class MyBot : IChessBot
         //if (isOpening || isMidgame) {
         //    float openingScalingFactor = Clamp(totalPieces / 20f, 0f, 1f);
 
-        //    score += (whiteCenterControlScore - blackCenterControlScore) * 25f * openingScalingFactor;
+        //    score += (whiteCenterControlScore - blackCenterControlScore) * 20f * openingScalingFactor;
 
         //    Square whiteKingSquare = board.GetKingSquare(true);
         //    Square blackKingSquare = board.GetKingSquare(false);
         //    if (whiteKingSquare.File >= 4 && whiteKingSquare.File <= 5) {
-        //        score -= 25f * openingScalingFactor;
+        //        score -= 17f * openingScalingFactor;
         //    }
         //    if (blackKingSquare.File >= 4 && blackKingSquare.File <= 5) {
-        //        score += 25f * openingScalingFactor;
+        //        score += 17f * openingScalingFactor;
         //    }
         //}
 
-        //// Pawn Structure
-        //ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
-        //ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
+        ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
+        ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
 
         //// Doubled Pawns
-        //int whiteDoubledPawns = CountDoubledPawns(whitePawns);
-        //int blackDoubledPawns = CountDoubledPawns(blackPawns);
-        //score -= (whiteDoubledPawns - blackDoubledPawns) * 40;
+        //int whiteDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(whitePawns)];
+        //int blackDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(blackPawns)];
+        //score += whiteDoubledPawnsPenalty - blackDoubledPawnsPenalty;
 
         //// Isolated Pawns
-        //int whiteIsolatedPawns = CountIsolatedPawns(whitePawns);
-        //int blackIsolatedPawns = CountIsolatedPawns(blackPawns);
-        //score -= (whiteIsolatedPawns - blackIsolatedPawns) * 35;
+        //int whiteIsolatedPawnPenalty = isolatedPawnPenaltyByCount[CountIsolatedPawns(whitePawns)];
+        //int blackIsolatedPawnsPenalty = isolatedPawnPenaltyByCount[CountIsolatedPawns(blackPawns)];
+        //score += whiteIsolatedPawnPenalty - blackIsolatedPawnsPenalty;
 
         //// Passed Pawns
-        //int whitePassedPawns = CountPassedPawns(whitePawns, blackPawns, true);
-        //int blackPassedPawns = CountPassedPawns(blackPawns, whitePawns, false);
-        //score += (whitePassedPawns - blackPassedPawns) * 35;
+        //int whitePassedPawnsBonus = CountPassedPawnsBonuses(whitePawns, blackPawns, true);
+        //int blackPassedPawnsBonus = CountPassedPawnsBonuses(blackPawns, whitePawns, false);
+        //score += whitePassedPawnsBonus - blackPassedPawnsBonus;
 
         //// Rooks on Open Files
-        //ulong allPawns = whitePawns | blackPawns;
+        ulong allPawns = whitePawns | blackPawns;
         //int whiteRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, true), allPawns);
         //int blackRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, false), allPawns);
-        //score += (whiteRooksOnOpenFiles - blackRooksOnOpenFiles) * 35;
+        //score += (whiteRooksOnOpenFiles - blackRooksOnOpenFiles) * 40;
 
         //// Bishop Pair
         //bool whiteHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, true)) >= 2;
         //bool blackHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, false)) >= 2;
         //score += (whiteHasBishopPair ? 20 : 0) - (blackHasBishopPair ? 20 : 0);
 
-        //// Mop-up Evaluation
-        //if (isEndEndgame) {
-        //    Square opponentKingSquare = board.IsWhiteToMove ? board.GetKingSquare(false) : board.GetKingSquare(true);
-        //    int distanceToEdge = Min(opponentKingSquare.File, 7 - opponentKingSquare.File);
-        //    distanceToEdge = Min(distanceToEdge, opponentKingSquare.Rank);
-        //    distanceToEdge = Min(distanceToEdge, 7 - opponentKingSquare.Rank);
+        //// Pawn Shield
+        //float pawnShieldMultiplier = CalculateMultiplier(totalPieces, 18, 22);
+        //if (pawnShieldMultiplier != 0) {
+        //    float whitePawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, true) * pawnShieldMultiplier;
+        //    float blackPawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, false) * pawnShieldMultiplier;
 
-        //    float mopUpBonus = (3 - distanceToEdge) * 33f;
-
-        //    // Scale the bonus based on how close you are to the endgame
-        //    float endgameScalingFactor = 1.0f - Clamp(totalPieces / 15f, 0f, 1f);
-        //    mopUpBonus = MathF.Round(mopUpBonus * endgameScalingFactor);
-
-        //    score += mopUpBonus;
+        //    score += (whitePawnShieldMissingCount * -22f) - (blackPawnShieldMissingCount * -22f);
         //}
+
+        // Mop-up Evaluation
+        float mopUpMultiplier = 1 - CalculateMultiplier(totalPieces, 5, 13);
+        if (isEndEndgame && BitCount(allPawns) <= 5 && mopUpMultiplier != 0) {
+            float ownMaterial = isWhiteToMove ? whiteMatScore : blackMatScore;
+            float enemyMaterial = isWhiteToMove ? blackMatScore : whiteMatScore;
+
+            if (ownMaterial >= enemyMaterial + 1000) {
+                float mopUpScore = 0f;
+                Square ownKingSquare = board.GetKingSquare(isWhiteToMove);
+                Square opponentKingSquare = board.GetKingSquare(!isWhiteToMove);
+
+                mopUpScore += ChessChallenge.Chess.PrecomputedMoveData.OrthogonalDistance[ownKingSquare.Index, opponentKingSquare.Index] * 20;
+
+                int centerManhattanDistance = ChessChallenge.Chess.PrecomputedMoveData.CentreManhattanDistance[opponentKingSquare.Index];
+
+                mopUpScore += centerManhattanDistance * 50;
+
+                score += mopUpScore * mopUpMultiplier;
+            }
+        }
 
         // Space (How to win at Chess P.112) and King Safety
         //float spaceFactor = 1 - CalculateMultiplier(totalPieces, 13, 20);
@@ -286,10 +344,32 @@ public class MyBot : IChessBot
         //}
 
 
-        return (int)Round(board.IsWhiteToMove ? score : -score);
+        return (int)Round(isWhiteToMove ? score : -score);
     }
 
     #region Evaluation Helpers
+    int EvaluateMissingPawnShieldCount(Board board, bool isWhite) {
+        Square kingSquare = board.GetKingSquare(isWhite);
+
+        // Directly check if the king is on a castling square
+        bool hasCastled = isWhite ? 
+            (kingSquare.Index == 6 || kingSquare.Index == 2 || kingSquare.Index == 7 || kingSquare.Index == 1 || kingSquare.Index == 0) :
+            (kingSquare.Index == 62 || kingSquare.Index == 58 || kingSquare.Index == 59 || kingSquare.Index == 57 || kingSquare.Index == 56);
+        if (!hasCastled) {
+            return 0;
+        }
+
+        ulong pawnBitboard = board.GetPieceBitboard(PieceType.Pawn, isWhite);
+        ulong shieldSquares = GetPawnShieldSquares(kingSquare, isWhite);
+
+        int missingShieldPawns = BitboardHelper.GetNumberOfSetBits(shieldSquares & ~pawnBitboard);
+
+        return missingShieldPawns;
+    }
+    ulong GetPawnShieldSquares(Square kingSquare, bool isWhite) {
+        return isWhite ? PrecomputedEvaluationData.whitePawnShieldSquares[kingSquare.Index] :
+            PrecomputedEvaluationData.blackPawnShieldSquares[kingSquare.Index];
+    }
     ulong GetKingSurroundingSquares(bool isWhite) {
         // Masks for A and H files
         ulong notAFile = 0xFEFEFEFEFEFEFEFE;
@@ -364,11 +444,11 @@ public class MyBot : IChessBot
     int CountMaterial(Board board, bool white) {
         int material = 0;
 
-        material += BitboardHelper.GetNumberOfSetBits(board.GetPieceBitboard(PieceType.Pawn, white)) * pieceValues[1];
-        material += BitboardHelper.GetNumberOfSetBits(board.GetPieceBitboard(PieceType.Knight, white)) * pieceValues[2];
-        material += BitboardHelper.GetNumberOfSetBits(board.GetPieceBitboard(PieceType.Bishop, white)) * pieceValues[3];
-        material += BitboardHelper.GetNumberOfSetBits(board.GetPieceBitboard(PieceType.Rook, white)) * pieceValues[4];
-        material += BitboardHelper.GetNumberOfSetBits(board.GetPieceBitboard(PieceType.Queen, white)) * pieceValues[5];
+        material += BitCount(board.GetPieceBitboard(PieceType.Pawn, white)) * pieceValues[1];
+        material += BitCount(board.GetPieceBitboard(PieceType.Knight, white)) * pieceValues[2];
+        material += BitCount(board.GetPieceBitboard(PieceType.Bishop, white)) * pieceValues[3];
+        material += BitCount(board.GetPieceBitboard(PieceType.Rook, white)) * pieceValues[4];
+        material += BitCount(board.GetPieceBitboard(PieceType.Queen, white)) * pieceValues[5];
 
         return material;
     }
@@ -415,38 +495,34 @@ public class MyBot : IChessBot
 
         return isolatedCount;
     }
-    public static int CountPassedPawns(ulong ownPawns, ulong opponentPawns, bool isWhite) {
-        int passedCount = 0;
+    public static int CountPassedPawnsBonuses(ulong ownPawns, ulong opponentPawns, bool isWhite) {
+        int passedBonus = 0;
 
         while (ownPawns != 0) {
             // Get the least significant bit's position
             ulong lsb = ownPawns & (~ownPawns + 1);
 
-            // If it's a white pawn, check the squares above it
-            if (isWhite) {
-                ulong pathToPromotion = NorthFill(lsb);
-                ulong adjacentFiles = WestOne(lsb) | EastOne(lsb);
-                ulong blockingRegion = pathToPromotion | (NorthOne(pathToPromotion) & adjacentFiles);
+            ulong blockingRegion = CalculatePassedPawnBlockedRegion(lsb, isWhite);
 
-                if ((blockingRegion & opponentPawns) == 0)
-                    passedCount++;
-            }
-            else // If it's a black pawn, check the squares below it
-            {
-                ulong pathToPromotion = SouthFill(lsb);
-                ulong adjacentFiles = WestOne(lsb) | EastOne(lsb);
-                ulong blockingRegion = pathToPromotion | (SouthOne(pathToPromotion) & adjacentFiles);
-
-                if ((blockingRegion & opponentPawns) == 0)
-                    passedCount++;
+            if ((blockingRegion & opponentPawns) == 0) {
+                int distance = CalculatePassedPawnDistance(lsb, isWhite);
+                passedBonus += passedPawnBonuses[distance];
             }
 
-            // Clear the least significant bit
             ownPawns &= ownPawns - 1;
         }
 
-        return passedCount;
+        return passedBonus;
     }
+    static ulong CalculatePassedPawnBlockedRegion(ulong lsb, bool isWhite) {
+        return isWhite ? PrecomputedEvaluationData.whitePassedPawnBlockedRegion[GetSquareIndex(lsb)] :
+            PrecomputedEvaluationData.blackPassedPawnBlockedRegion[GetSquareIndex(lsb)];
+    }
+    static int CalculatePassedPawnDistance(ulong lsb, bool isWhite) {
+        Square square = new Square(GetSquareIndex(lsb));
+        return isWhite ? 7 - square.Rank : square.Rank;
+    }
+
     static int CountRooksOnOpenFiles(ulong rooks, ulong allPawns) {
         int openFileRooks = 0;
 
@@ -471,6 +547,17 @@ public class MyBot : IChessBot
     #endregion
 
     #region Helper methods for bitboard manipulation
+    public static int GetSquareIndex(ulong bitboard) {
+        // Ensure that there is exactly one bit set in the bitboard
+        if (bitboard == 0 || (bitboard & (bitboard - 1)) != 0) {
+            throw new ArgumentException("Bitboard must have exactly one bit set.");
+        }
+
+        return BitOperations.TrailingZeroCount(bitboard);
+    }
+    ulong SquareToBitboard(Square square) {
+        return 1UL << (square.Rank * 8 + square.File);
+    }
     private static ulong NorthOne(ulong bb) => bb << 8;
     private static ulong SouthOne(ulong bb) => bb >> 8;
     private static ulong EastOne(ulong bb) => (bb & 0xFEFEFEFEFEFEFEFE) << 1;
@@ -537,16 +624,16 @@ public class MyBot : IChessBot
         int loopvar = 0;
 
         //Old Move Ordering
-        //foreach (var lmove in legal)
-        //    prioritizedMoves[loopvar++] = (
-        //          (trans.Key == key && lmove == trans.Move ? 5000 : _killerMoves.Contains(lmove) ? 500 : 0)
-        //        + (lmove.PromotionPieceType == PieceType.Queen ? 5 : 0)
-        //        + (0x0953310 >> 4 * (int)lmove.CapturePieceType & 0xf),
-        //        lmove);
+        foreach (var lmove in legal)
+            prioritizedMoves[loopvar++] = (
+                  (trans.Key == key && lmove == trans.Move ? 5000 : _killerMoves.Contains(lmove) ? 500 : 0)
+                + (lmove.PromotionPieceType == PieceType.Queen ? 5 : 0)
+                + (0x0953310 >> 4 * (int)lmove.CapturePieceType & 0xf),
+                lmove);
 
-        //prioritizedMoves.Sort((a, b) => -a.Item1.CompareTo(b.Item1));
+        prioritizedMoves.Sort((a, b) => -a.Item1.CompareTo(b.Item1));
 
-        OrderMoves(board, ref legal, ref prioritizedMoves, trans);
+        //OrderMoves(board, ref legal, ref prioritizedMoves, trans);
 
         bool canUseTranspositions = true, approximate = false, canUse;
         loopvar = 0;
@@ -626,17 +713,17 @@ public class MyBot : IChessBot
 
             // Encourage central control
             if ((isOpening || isMidgame) && targetSquare.File >= 3 && targetSquare.File <= 4 && targetSquare.Rank >= 3 && targetSquare.Rank <= 4) {
-                moveScore += 0.75f * (1 - endgameT);
+                moveScore += 0.65f * (1 - endgameT);
             }
 
             // Prioritize pawn advances with endgameT scaling
             if (movePieceType == PieceType.Pawn && !isOpening) {
-                moveScore += (movePiece.IsWhite ? targetSquare.Rank : 7 - targetSquare.Rank) * 0.35f * endgameT;
+                moveScore += (movePiece.IsWhite ? targetSquare.Rank : 7 - targetSquare.Rank) * 0.5f * endgameT;
             }
 
             // Castling
             if ((isOpening || isMidgame) && lmove.IsCastles) {
-                moveScore += .9f;
+                moveScore += .8f;
             }
 
             // Promotion
@@ -648,10 +735,10 @@ public class MyBot : IChessBot
             //if (capturePieceType != PieceType.None) {
             //    float captureValue = pieceValues[(int)movePieceType] / 100f;
             //    float attackerValue = pieceValues[(int)capturePieceType] / 100f;
-            //    bool isRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
             //    float materialExchange = captureValue - attackerValue;
+            //    bool canRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
 
-            //    if (!isRecapture) {
+            //    if (!canRecapture) {
             //        moveScore += captureValue * 1.2f;
             //    }
             //    else {
@@ -680,6 +767,20 @@ public class MyBot : IChessBot
     public Move Think(Board b, Timer t) {
         board = b;
         timer = t;
+
+        //List<string> toWrite = new List<string>();
+        //for (int i = 0; i <= 63; i++) {
+        //    ulong passedPawnBlockedRegion = CalculatePassedPawnBlockedRegion(IndexToBitboard(i), false);
+
+        //    string toAdd = ", " + passedPawnBlockedRegion.ToString();
+        //    toWrite.Add(toAdd);
+        //}
+        //string path = Path.Combine("E:\\Github\\ChessAI-Project\\Chess-Challenge-main\\Chess-Challenge\\resources", "Temp.txt");
+
+        //File.WriteAllLines(path, toWrite.ToArray());
+
+        //Console.WriteLine("done");
+
 
         // Book moves
         if (bookMoves) {
@@ -774,11 +875,11 @@ public class MyBot : IChessBot
         }
 
         board.MakeMove(bestMove);
-
+        //Console.Clear();
         if (printDebug) {
             Console.WriteLine($"Ply: {board.PlyCount}, Depth: {depth - 1}, Best Move: {bestMove}" +
                 $", Elapsed time: {Math.Round((double)totalSW.ElapsedMilliseconds, 2)}");
-        }
+        }       
         board.UndoMove(bestMove);
 
         totalSW.Stop();
@@ -923,5 +1024,278 @@ public class MyBot : IChessBot
         public ulong Key;
         public short Score, Depth;
         public Move Move;
+    }
+    public static class PrecomputedEvaluationData 
+    {
+        public static ulong[] whitePawnShieldSquares = {
+            768
+            , 1792
+            , 3584
+            , 7168
+            , 14336
+            , 28672
+            , 57344
+            , 49152
+            , 196608
+            , 458752
+            , 917504
+            , 1835008
+            , 3670016
+            , 7340032
+            , 14680064
+            , 12582912
+            , 50331648
+            , 117440512
+            , 234881024
+            , 469762048
+            , 939524096
+            , 1879048192
+            , 3758096384
+            , 3221225472
+            , 12884901888
+            , 30064771072
+            , 60129542144
+            , 120259084288
+            , 240518168576
+            , 481036337152
+            , 962072674304
+            , 824633720832
+            , 3298534883328
+            , 7696581394432
+            , 15393162788864
+            , 30786325577728
+            , 61572651155456
+            , 123145302310912
+            , 246290604621824
+            , 211106232532992
+            , 844424930131968
+            , 1970324836974592
+            , 3940649673949184
+            , 7881299347898368
+            , 15762598695796736
+            , 31525197391593472
+            , 63050394783186944
+            , 54043195528445952
+            , 216172782113783808
+            , 504403158265495552
+            , 1008806316530991104
+            , 2017612633061982208
+            , 4035225266123964416
+            , 8070450532247928832
+            , 16140901064495857664
+            , 13835058055282163712
+            , 3
+            , 7
+            , 14
+            , 28
+            , 56
+            , 112
+            , 224
+            , 192
+        };
+
+        public static ulong[] blackPawnShieldSquares = {
+            216172782113783808
+            , 504403158265495552
+            , 1008806316530991104
+            , 2017612633061982208
+            , 4035225266123964416
+            , 8070450532247928832
+            , 16140901064495857664
+            , 13835058055282163712
+            , 3
+            , 7
+            , 14
+            , 28
+            , 56
+            , 112
+            , 224
+            , 192
+            , 768
+            , 1792
+            , 3584
+            , 7168
+            , 14336
+            , 28672
+            , 57344
+            , 49152
+            , 196608
+            , 458752
+            , 917504
+            , 1835008
+            , 3670016
+            , 7340032
+            , 14680064
+            , 12582912
+            , 50331648
+            , 117440512
+            , 234881024
+            , 469762048
+            , 939524096
+            , 1879048192
+            , 3758096384
+            , 3221225472
+            , 12884901888
+            , 30064771072
+            , 60129542144
+            , 120259084288
+            , 240518168576
+            , 481036337152
+            , 962072674304
+            , 824633720832
+            , 3298534883328
+            , 7696581394432
+            , 15393162788864
+            , 30786325577728
+            , 61572651155456
+            , 123145302310912
+            , 246290604621824
+            , 211106232532992
+            , 844424930131968
+            , 1970324836974592
+            , 3940649673949184
+            , 7881299347898368
+            , 15762598695796736
+            , 31525197391593472
+            , 63050394783186944
+            , 54043195528445952
+        };
+
+        public static ulong[] whitePassedPawnBlockedRegion = {
+            217020518514230017
+            , 506381209866536706
+            , 1012762419733073412
+            , 2025524839466146824
+            , 4051049678932293648
+            , 8102099357864587296
+            , 16204198715729174592
+            , 13889313184910721152
+            , 217020518514229504
+            , 506381209866535424
+            , 1012762419733070848
+            , 2025524839466141696
+            , 4051049678932283392
+            , 8102099357864566784
+            , 16204198715729133568
+            , 13889313184910704640
+            , 217020518514098176
+            , 506381209866207232
+            , 1012762419732414464
+            , 2025524839464828928
+            , 4051049678929657856
+            , 8102099357859315712
+            , 16204198715718631424
+            , 13889313184906477568
+            , 217020518480478208
+            , 506381209782190080
+            , 1012762419564380160
+            , 2025524839128760320
+            , 4051049678257520640
+            , 8102099356515041280
+            , 16204198713030082560
+            , 13889313183824347136
+            , 217020509873766400
+            , 506381188273799168
+            , 1012762376547598336
+            , 2025524753095196672
+            , 4051049506190393344
+            , 8102099012380786688
+            , 16204198024761573376
+            , 13889312906798956544
+            , 217018306555543552
+            , 506375682125725696
+            , 1012751364251451392
+            , 2025502728502902784
+            , 4051005457005805568
+            , 8102010914011611136
+            , 16204021828023222272
+            , 13889241988298964992
+            , 216454257090494464
+            , 504966108218916864
+            , 1009932216437833728
+            , 2019864432875667456
+            , 4039728865751334912
+            , 8079457731502669824
+            , 16158915463005339648
+            , 13871086852301127680
+            , 72057594037927936
+            , 144115188075855872
+            , 288230376151711744
+            , 576460752303423488
+            , 1152921504606846976
+            , 2305843009213693952
+            , 4611686018427387904
+            , 9223372036854775808
+        };
+
+        public static ulong[] blackPassedPawnBlockedRegion = {
+            1
+            , 2
+            , 4
+            , 8
+            , 16
+            , 32
+            , 64
+            , 128
+            , 259
+            , 519
+            , 1038
+            , 2076
+            , 4152
+            , 8304
+            , 16608
+            , 32960
+            , 66307
+            , 132871
+            , 265742
+            , 531484
+            , 1062968
+            , 2125936
+            , 4251872
+            , 8437952
+            , 16974595
+            , 34014983
+            , 68029966
+            , 136059932
+            , 272119864
+            , 544239728
+            , 1088479456
+            , 2160115904
+            , 4345496323
+            , 8707835655
+            , 17415671310
+            , 34831342620
+            , 69662685240
+            , 139325370480
+            , 278650740960
+            , 552989671616
+            , 1112447058691
+            , 2229205927687
+            , 4458411855374
+            , 8916823710748
+            , 17833647421496
+            , 35667294842992
+            , 71334589685984
+            , 141565355933888
+            , 284786447024899
+            , 570676717487879
+            , 1141353434975758
+            , 2282706869951516
+            , 4565413739903032
+            , 9130827479806064
+            , 18261654959612128
+            , 36240731119075520
+            , 72905330438374147
+            , 146093239676897031
+            , 292186479353794062
+            , 584372958707588124
+            , 1168745917415176248
+            , 2337491834830352496
+            , 4674983669660704992
+            , 9277627166483333312
+        };
+
+
+
     }
 }
