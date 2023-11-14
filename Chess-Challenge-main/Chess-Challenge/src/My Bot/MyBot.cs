@@ -35,8 +35,8 @@ public class MyBot : IChessBot
     Board board;
     HashSet<Move> _killerMoves = new();
 
-    private static readonly string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "resources", "Book.txt");
-    private OpeningBook openingBook = new(File.ReadAllText(path));
+    private static readonly string openingBookPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "resources", "Book.txt");
+    private OpeningBook openingBook = new(File.ReadAllText(openingBookPath));
 
     // Square values can be calculated by bit shifting
     ulong centerSquares = ((ulong)1 << new Square("e4").Index)
@@ -193,33 +193,38 @@ public class MyBot : IChessBot
         float whiteMatScore = 0f;
         float blackMatScore = 0f;
 
-        foreach (var pieceList in board.GetAllPieceLists()) {
-            float pieceListScore = 0f;
+        //foreach (var pl in board.GetAllPieceLists())
+        //    score += 0b1000010 >> (int)pl.TypeOfPieceInList != 0
+        //        ? (pl.IsWhitePieceList ? ownOneMinusEndgameT : -otherOneMinusEndgameT) * EvaluatePieceSquareTable(Starts, pl)
+        //          + (pl.IsWhitePieceList ? 1.0f - ownOneMinusEndgameT : otherOneMinusEndgameT - 1.0f) * EvaluatePieceSquareTable(Ends, pl)
+        //        : EvaluatePieceSquareTable(Starts, pl);
 
-            if (0b1000010 >> (int)pieceList.TypeOfPieceInList != 0) {
-                if (pieceList.IsWhitePieceList) {
-                    pieceListScore += ownOneMinusEndgameT * EvaluatePieceSquareTable(Starts, pieceList);
-                    pieceListScore += (1.0f - ownOneMinusEndgameT) * EvaluatePieceSquareTable(Ends, pieceList);
+        foreach (var pl in board.GetAllPieceLists()) {
+            float pieceListScore;
+
+            if (0b1000010 >> (int)pl.TypeOfPieceInList != 0) {
+                float pieceScoreStart = EvaluatePieceSquareTable(Starts, pl);
+                float pieceScoreEnd = EvaluatePieceSquareTable(Ends, pl);
+
+                if (pl.IsWhitePieceList) {
+                    pieceListScore = ownOneMinusEndgameT * pieceScoreStart + (1.0f - ownOneMinusEndgameT) * pieceScoreEnd;
                 }
                 else {
-                    pieceListScore += -otherOneMinusEndgameT * EvaluatePieceSquareTable(Starts, pieceList);
-                    pieceListScore += (otherOneMinusEndgameT - 1.0f) * EvaluatePieceSquareTable(Ends, pieceList);
+                    pieceListScore = -otherOneMinusEndgameT * pieceScoreStart + (otherOneMinusEndgameT - 1.0f) * pieceScoreEnd;
                 }
             }
             else {
-                pieceListScore += EvaluatePieceSquareTable(Starts, pieceList);
+                pieceListScore = EvaluatePieceSquareTable(Starts, pl);
             }
 
-            if (pieceList.IsWhitePieceList) {
+            if (pl.IsWhitePieceList) {
                 whiteMatScore += pieceListScore;
             }
             else {
                 blackMatScore += pieceListScore;
             }
+            score += pieceListScore;
         }
-
-
-        score += whiteMatScore + blackMatScore;
 
         ulong whitePieces = board.WhitePiecesBitboard;
         ulong blackPieces = board.BlackPiecesBitboard;
@@ -230,6 +235,9 @@ public class MyBot : IChessBot
         bool isMidgame = totalPieces <= 25 && totalPieces > 13;
         bool isEndEndgame = totalPieces < 13;
         bool isWhiteToMove = board.IsWhiteToMove;
+
+        Square whiteKingSquare = board.GetKingSquare(true);
+        Square blackKingSquare = board.GetKingSquare(false);
 
 
         //int whiteCenterControlScore = BitboardHelper.GetNumberOfSetBits(whitePieces & centerSquares);
@@ -242,8 +250,6 @@ public class MyBot : IChessBot
 
         //    score += (whiteCenterControlScore - blackCenterControlScore) * 20f * openingScalingFactor;
 
-        //    Square whiteKingSquare = board.GetKingSquare(true);
-        //    Square blackKingSquare = board.GetKingSquare(false);
         //    if (whiteKingSquare.File >= 4 && whiteKingSquare.File <= 5) {
         //        score -= 17f * openingScalingFactor;
         //    }
@@ -254,6 +260,7 @@ public class MyBot : IChessBot
 
         ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
         ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
+        ulong allPawns = whitePawns | blackPawns;
 
         //// Doubled Pawns
         //int whiteDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(whitePawns)];
@@ -271,10 +278,9 @@ public class MyBot : IChessBot
         //score += whitePassedPawnsBonus - blackPassedPawnsBonus;
 
         //// Rooks on Open Files
-        ulong allPawns = whitePawns | blackPawns;
         //int whiteRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, true), allPawns);
         //int blackRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, false), allPawns);
-        //score += (whiteRooksOnOpenFiles - blackRooksOnOpenFiles) * 40;
+        //score += (whiteRooksOnOpenFiles - blackRooksOnOpenFiles) * 37.5f;
 
         //// Bishop Pair
         //bool whiteHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, true)) >= 2;
@@ -284,32 +290,16 @@ public class MyBot : IChessBot
         //// Pawn Shield
         //float pawnShieldMultiplier = CalculateMultiplier(totalPieces, 18, 22);
         //if (pawnShieldMultiplier != 0) {
-        //    float whitePawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, true) * pawnShieldMultiplier;
-        //    float blackPawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, false) * pawnShieldMultiplier;
+        //    float whitePawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, whiteKingSquare, true) * pawnShieldMultiplier;
+        //    float blackPawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, blackKingSquare, false) * pawnShieldMultiplier;
 
         //    score += (whitePawnShieldMissingCount * -22f) - (blackPawnShieldMissingCount * -22f);
         //}
 
-        // Mop-up Evaluation
-        float mopUpMultiplier = 1 - CalculateMultiplier(totalPieces, 5, 13);
-        if (isEndEndgame && BitCount(allPawns) <= 5 && mopUpMultiplier != 0) {
-            float ownMaterial = isWhiteToMove ? whiteMatScore : blackMatScore;
-            float enemyMaterial = isWhiteToMove ? blackMatScore : whiteMatScore;
-
-            if (ownMaterial >= enemyMaterial + 1000) {
-                float mopUpScore = 0f;
-                Square ownKingSquare = board.GetKingSquare(isWhiteToMove);
-                Square opponentKingSquare = board.GetKingSquare(!isWhiteToMove);
-
-                mopUpScore += ChessChallenge.Chess.PrecomputedMoveData.OrthogonalDistance[ownKingSquare.Index, opponentKingSquare.Index] * 20;
-
-                int centerManhattanDistance = ChessChallenge.Chess.PrecomputedMoveData.CentreManhattanDistance[opponentKingSquare.Index];
-
-                mopUpScore += centerManhattanDistance * 50;
-
-                score += mopUpScore * mopUpMultiplier;
-            }
-        }
+        //// Mop-up Evaluation
+        //float mopUpMultiplier = 1 - CalculateMultiplier(totalPieces, 3, 13);
+        //score += MopUpEval(allPawns, whiteMatScore, blackMatScore, mopUpMultiplier, whiteKingSquare, blackKingSquare) -
+        //    MopUpEval(allPawns, blackMatScore, whiteMatScore, mopUpMultiplier, blackKingSquare, whiteKingSquare);
 
         // Space (How to win at Chess P.112) and King Safety
         //float spaceFactor = 1 - CalculateMultiplier(totalPieces, 13, 20);
@@ -348,9 +338,19 @@ public class MyBot : IChessBot
     }
 
     #region Evaluation Helpers
-    int EvaluateMissingPawnShieldCount(Board board, bool isWhite) {
-        Square kingSquare = board.GetKingSquare(isWhite);
+    float MopUpEval(ulong allPawns, float ownMaterial, float enemyMaterial, float mopUpMultiplier, Square ownKingSquare, Square enemyKingSquare) {
+        if (mopUpMultiplier != 0 && BitCount(allPawns) <= 5 && ownMaterial >= enemyMaterial + 1500) {
+            float mopUpScore = 0f;
 
+            mopUpScore += (14 - ChessChallenge.Chess.PrecomputedMoveData.OrthogonalDistance[ownKingSquare.Index, enemyKingSquare.Index]) * 17;
+
+            mopUpScore += ChessChallenge.Chess.PrecomputedMoveData.CentreManhattanDistance[enemyKingSquare.Index] * 37f;
+
+            return mopUpScore * mopUpMultiplier;
+        }
+        return 0;
+    }
+    int EvaluateMissingPawnShieldCount(Board board, Square kingSquare, bool isWhite) {
         // Directly check if the king is on a castling square
         bool hasCastled = isWhite ? 
             (kingSquare.Index == 6 || kingSquare.Index == 2 || kingSquare.Index == 7 || kingSquare.Index == 1 || kingSquare.Index == 0) :
@@ -638,7 +638,9 @@ public class MyBot : IChessBot
         bool canUseTranspositions = true, approximate = false, canUse;
         loopvar = 0;
         foreach (var (_, move) in prioritizedMoves) {
-            if (searchCancelled = timer.MillisecondsElapsedThisTurn >= budget)
+            searchCancelled = timer.MillisecondsElapsedThisTurn >= budget && !searchCancelled;
+
+            if (searchCancelled)
                 return (bestScore, best, canUseTranspositions);
 
             board.MakeMove(move);
@@ -667,6 +669,7 @@ public class MyBot : IChessBot
                 alpha = Max(alpha, score);
                 canUseTranspositions = canUse;
 
+
                 if (approximate = beta < alpha) {
                     _killerMoves.Add(move);
                     break;
@@ -685,7 +688,6 @@ public class MyBot : IChessBot
     }
     void OrderMoves(Board board, ref Span<Move> legals, ref Span<(float, Move)> prioritizedMoves, Entry trans) {
         int loopvar = 0;
-
         int totalPieces = CountPiecesOnBoard(board);
 
         bool isOpening = totalPieces > 25;
@@ -763,7 +765,6 @@ public class MyBot : IChessBot
         prioritizedMoves.Sort((a, b) => -a.Item1.CompareTo(b.Item1));
     }
 
-
     public Move Think(Board b, Timer t) {
         board = b;
         timer = t;
@@ -780,7 +781,6 @@ public class MyBot : IChessBot
         //File.WriteAllLines(path, toWrite.ToArray());
 
         //Console.WriteLine("done");
-
 
         // Book moves
         if (bookMoves) {
@@ -878,8 +878,8 @@ public class MyBot : IChessBot
         //Console.Clear();
         if (printDebug) {
             Console.WriteLine($"Ply: {board.PlyCount}, Depth: {depth - 1}, Best Move: {bestMove}" +
-                $", Elapsed time: {Math.Round((double)totalSW.ElapsedMilliseconds, 2)}");
-        }       
+                $", Elapsed time: {Round((double)totalSW.ElapsedMilliseconds, 2)}");
+        }
         board.UndoMove(bestMove);
 
         totalSW.Stop();
@@ -1002,7 +1002,7 @@ public class MyBot : IChessBot
     static int BitCount(ulong b) {
         int count = 0;
         while (b != 0) {
-            b &= b - 1; // Remove the least significant bit set
+            b &= b - 1;
             count++;
         }
         return count;
@@ -1294,8 +1294,6 @@ public class MyBot : IChessBot
             , 4674983669660704992
             , 9277627166483333312
         };
-
-
 
     }
 }
