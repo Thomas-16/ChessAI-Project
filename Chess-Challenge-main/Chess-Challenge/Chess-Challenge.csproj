@@ -10,6 +10,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="resources\Sound Effects\Capture.mp3" />
+    <None Remove="resources\Sound Effects\Move.mp3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="resources\Sound Effects\Capture.mp3" />
+    <Content Include="resources\Sound Effects\Move.mp3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Raylib-cs" Version="4.5.0.2" />
   </ItemGroup>
 

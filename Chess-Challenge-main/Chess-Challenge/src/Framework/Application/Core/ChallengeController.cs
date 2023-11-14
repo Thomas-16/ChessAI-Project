@@ -264,6 +264,16 @@ namespace ChessChallenge.Application
                 bool animate = PlayerToMove.IsBot;
                 lastMoveMadeTime = (float)Raylib.GetTime();
 
+                if(PlayerWhite.PlayerType is PlayerType.Human || PlayerBlack.PlayerType is PlayerType.Human) {
+                    API.Move APIMove = new(move.GetUCIString(), new API.Board(board));
+                    if (APIMove.IsCapture) {
+                        SoundController.PlayCaptureSFX();
+                    }
+                    else {
+                        SoundController.PlayMoveSFX();
+                    }
+                }
+
                 board.MakeMove(move, false);
                 boardUI.UpdatePosition(board, move, animate);
 
@@ -382,6 +392,7 @@ namespace ChessChallenge.Application
                     if (isWaitingToPlayMove && Raylib.GetTime() > playMoveTime)
                     {
                         isWaitingToPlayMove = false;
+
                         PlayMove(moveToPlay);
                     }
                 }

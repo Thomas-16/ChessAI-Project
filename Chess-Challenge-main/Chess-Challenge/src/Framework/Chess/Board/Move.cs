@@ -75,6 +75,21 @@ namespace ChessChallenge.Chess
 
         public static Move NullMove => new Move(0);
         public static bool SameMove(Move a, Move b) => a.moveValue == b.moveValue;
+        public string GetUCIString() {
+            // Convert the index to file and rank
+            string IndexToAlgebraic(int index) {
+                char file = (char)('a' + (index % 8)); // File: 'a' to 'h'
+                char rank = (char)('1' + (index / 8)); // Rank: '1' to '8'
+                return $"{file}{rank}";
+            }
+
+            // Get start and target square in UCI format
+            string startSquare = IndexToAlgebraic(StartSquareIndex);
+            string targetSquare = IndexToAlgebraic(TargetSquareIndex);
+
+            return startSquare + targetSquare;
+        }
+
 
 
     }

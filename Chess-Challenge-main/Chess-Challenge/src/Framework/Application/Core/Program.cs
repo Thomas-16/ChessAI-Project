@@ -1,6 +1,7 @@
 ﻿using Raylib_cs;
 using System.IO;
 using System.Numerics;
+using System.Media;
 using System.Runtime.InteropServices;
 
 namespace ChessChallenge.Application
@@ -24,12 +25,13 @@ namespace ChessChallenge.Application
                 }
             }
 
-            Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
+            Raylib.InitWindow(screenWidth, screenHeight, "Chess AI");
             Raylib.SetTargetFPS(60);
 
             UpdateCamera(screenWidth, screenHeight);
 
             ChallengeController controller = new();
+            SoundController.Initialize();
 
             while (!Raylib.WindowShouldClose())
             {
@@ -49,6 +51,7 @@ namespace ChessChallenge.Application
 
             Raylib.CloseWindow();
 
+            SoundController.Dispose();
             controller.Release();
             UIHelper.Release();
         }
