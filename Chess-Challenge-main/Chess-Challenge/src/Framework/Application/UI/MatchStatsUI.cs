@@ -15,8 +15,8 @@ namespace ChessChallenge.Application
             Vector2 startPos = UIHelper.Scale(new Vector2(1500, 250));
             float spacingY = UIHelper.Scale(35);
 
-            if(controller.PlayerWhite.Bot is not MyBot || controller.PlayerBlack.Bot is not MyBot) {
-                DrawNextText($"TT {MyBot.GetTranspositionPercentage()} full", headerFontSize, Color.WHITE);
+            if(controller.PlayerWhite.Bot is not MainBot || controller.PlayerBlack.Bot is not MainBot) {
+                DrawNextText($"TT {MainBot.GetTranspositionPercentage()} full", headerFontSize, Color.WHITE);
                 startPos.Y += spacingY * 2;
             }
 

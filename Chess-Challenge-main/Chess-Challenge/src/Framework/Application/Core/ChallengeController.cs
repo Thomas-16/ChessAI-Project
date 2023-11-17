@@ -16,14 +16,14 @@ namespace ChessChallenge.Application
     public class ChallengeController
     {
         public const int MAX_PLY_COUNT = 200;
-        const string MYBOT_NAME = "v2.4";
-        const string EVILBOT_NAME = "v2";
+        const string MAINBOT_NAME = "v2.5";
+        const string TESTBOT_NAME = "v2";
 
         public enum PlayerType
         {
             Human,
-            MyBot,
-            EvilBot
+            MainBot,
+            TestBot
         }
 
         // Game state
@@ -77,7 +77,7 @@ namespace ChessChallenge.Application
             botMatchStartFens = FileHelper.ReadResourceFile("Fens.txt").Split('\n').Where(fen => fen.Length > 0).ToArray();
             botTaskWaitHandle = new AutoResetEvent(false);
 
-            StartNewGame(PlayerType.Human, PlayerType.MyBot);
+            StartNewGame(PlayerType.Human, PlayerType.MainBot);
         }
 
         public void StartNewGame(PlayerType whiteType, PlayerType blackType)
@@ -202,13 +202,13 @@ namespace ChessChallenge.Application
                 boardUI.SetPerspective(PlayerWhite.IsHuman);
                 HumanWasWhiteLastGame = PlayerWhite.IsHuman;
             }
-            else if (PlayerWhite.Bot is MyBot && PlayerBlack.Bot is MyBot)
+            else if (PlayerWhite.Bot is MainBot && PlayerBlack.Bot is MainBot)
             {
                 boardUI.SetPerspective(true);
             }
             else
             {
-                boardUI.SetPerspective(PlayerWhite.Bot is MyBot);
+                boardUI.SetPerspective(PlayerWhite.Bot is MainBot);
             }
         }
 
@@ -216,15 +216,15 @@ namespace ChessChallenge.Application
         {
             return type switch
             {
-                PlayerType.MyBot => new ChessPlayer(new MyBot(), type, GameDurationMilliseconds),
-                PlayerType.EvilBot => new ChessPlayer(new EvilBot(), type, GameDurationMilliseconds),
+                PlayerType.MainBot => new ChessPlayer(new MainBot(), type, GameDurationMilliseconds),
+                PlayerType.TestBot => new ChessPlayer(new TestBot(), type, GameDurationMilliseconds),
                 _ => new ChessPlayer(new HumanPlayer(boardUI), type)
             };
         }
 
         static (int totalTokenCount, int debugTokenCount) GetTokenCount()
         {
-            string path = Path.Combine(Directory.GetCurrentDirectory(), "src", "My Bot", "MyBot.cs");
+            string path = Path.Combine(Directory.GetCurrentDirectory(), "src", "Main Bot", "MainBot.cs");
 
             using StreamReader reader = new(path);
             string txt = reader.ReadToEnd();
@@ -305,11 +305,11 @@ namespace ChessChallenge.Application
                 string pgn = PGNCreator.CreatePGN(board, result, GetPlayerName(PlayerWhite), GetPlayerName(PlayerBlack));
                 pgns.AppendLine(pgn);
 
-                if(PlayerWhite.IsBot && PlayerWhite.Bot is MyBot) {
-                    (PlayerWhite.Bot as MyBot).ResetTrans();
+                if(PlayerWhite.IsBot && PlayerWhite.Bot is MainBot) {
+                    (PlayerWhite.Bot as MainBot).ResetTrans();
                 }
-                if (PlayerBlack.IsBot && PlayerBlack.Bot is MyBot) {
-                    (PlayerBlack.Bot as MyBot).ResetTrans();
+                if (PlayerBlack.IsBot && PlayerBlack.Bot is MainBot) {
+                    (PlayerBlack.Bot as MainBot).ResetTrans();
                 }
 
                 // If 2 bots playing each other, start next game automatically.
@@ -422,11 +422,11 @@ namespace ChessChallenge.Application
 
         static string GetPlayerName(ChessPlayer player) => GetPlayerName(player.PlayerType);
         public static string GetPlayerName(PlayerType type) {
-            if(type == PlayerType.MyBot) {
-                return MYBOT_NAME;
+            if(type == PlayerType.MainBot) {
+                return MAINBOT_NAME;
             }
-            else if(type == PlayerType.EvilBot) {
-                return EVILBOT_NAME;
+            else if(type == PlayerType.TestBot) {
+                return TESTBOT_NAME;
             }
             else {
                 return type.ToString();

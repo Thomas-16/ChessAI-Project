@@ -15,21 +15,21 @@ namespace ChessChallenge.Application
             float breakSpacing = spacing * 0.6f;
 
             // Game Buttons
-            if (NextButtonInRow($"Human vs {ChallengeController.GetPlayerName(ChallengeController.PlayerType.MyBot)}", ref buttonPos, spacing, buttonSize))
+            if (NextButtonInRow($"Human vs {ChallengeController.GetPlayerName(ChallengeController.PlayerType.MainBot)}", ref buttonPos, spacing, buttonSize))
             {
-                var whiteType = controller.HumanWasWhiteLastGame ? ChallengeController.PlayerType.MyBot : ChallengeController.PlayerType.Human;
-                var blackType = !controller.HumanWasWhiteLastGame ? ChallengeController.PlayerType.MyBot : ChallengeController.PlayerType.Human;
+                var whiteType = controller.HumanWasWhiteLastGame ? ChallengeController.PlayerType.MainBot : ChallengeController.PlayerType.Human;
+                var blackType = !controller.HumanWasWhiteLastGame ? ChallengeController.PlayerType.MainBot : ChallengeController.PlayerType.Human;
                 controller.StartNewGame(whiteType, blackType);
             }
-            if (NextButtonInRow($"{ChallengeController.GetPlayerName(ChallengeController.PlayerType.MyBot)} vs {ChallengeController.GetPlayerName(ChallengeController.PlayerType.MyBot)}", 
+            if (NextButtonInRow($"{ChallengeController.GetPlayerName(ChallengeController.PlayerType.MainBot)} vs {ChallengeController.GetPlayerName(ChallengeController.PlayerType.MainBot)}", 
                 ref buttonPos, spacing, buttonSize))
             {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyBot);
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MainBot, ChallengeController.PlayerType.MainBot);
             }
-            if (NextButtonInRow($"{ChallengeController.GetPlayerName(ChallengeController.PlayerType.MyBot)} vs {ChallengeController.GetPlayerName(ChallengeController.PlayerType.EvilBot)}", 
+            if (NextButtonInRow($"{ChallengeController.GetPlayerName(ChallengeController.PlayerType.MainBot)} vs {ChallengeController.GetPlayerName(ChallengeController.PlayerType.TestBot)}", 
                 ref buttonPos, spacing, buttonSize))
             {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.EvilBot);
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MainBot, ChallengeController.PlayerType.TestBot);
             }
 
             // Page buttons

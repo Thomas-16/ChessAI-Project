@@ -9,7 +9,7 @@ using System.Numerics;
 using static System.Formats.Asn1.AsnWriter;
 using static System.Math;
 
-public class MyBot : IChessBot
+public class MainBot : IChessBot
 {
     const bool useTimer = ChessChallenge.Application.Settings.GameDurationMilliseconds != int.MaxValue;
     const int maxTimePerMove = 100;
@@ -258,9 +258,9 @@ public class MyBot : IChessBot
         //    }
         //}
 
-        ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
-        ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
-        ulong allPawns = whitePawns | blackPawns;
+        //ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
+        //ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
+        //ulong allPawns = whitePawns | blackPawns;
 
         //// Doubled Pawns
         //int whiteDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(whitePawns)];
@@ -620,29 +620,30 @@ public class MyBot : IChessBot
         Span<Move> legal = stackalloc Move[256];
         board.GetLegalMovesNonAlloc(ref legal, isCaptureOnly);
 
-        Span<(float, Move)> prioritizedMoves = stackalloc (float, Move)[legal.Length];
+        Span<ScoredMove> prioritizedMoves = stackalloc ScoredMove[legal.Length];
         int loopvar = 0;
 
-        //Old Move Ordering
-        foreach (var lmove in legal)
-            prioritizedMoves[loopvar++] = (
-                  (trans.Key == key && lmove == trans.Move ? 5000 : _killerMoves.Contains(lmove) ? 500 : 0)
-                + (lmove.PromotionPieceType == PieceType.Queen ? 5 : 0)
-                + (0x0953310 >> 4 * (int)lmove.CapturePieceType & 0xf),
-                lmove);
+        ////Old Move Ordering
+        //foreach (var lmove in legal)
+        //    prioritizedMoves[loopvar++] = (
+        //          (trans.Key == key && lmove == trans.Move ? 5000 : _killerMoves.Contains(lmove) ? 500 : 0)
+        //        + (lmove.PromotionPieceType == PieceType.Queen ? 5 : 0)
+        //        + (0x0953310 >> 4 * (int)lmove.CapturePieceType & 0xf),
+        //        lmove);
 
-        prioritizedMoves.Sort((a, b) => -a.Item1.CompareTo(b.Item1));
+        //prioritizedMoves.Sort((a, b) => -a.Item1.CompareTo(b.Item1));
 
-        //OrderMoves(board, ref legal, ref prioritizedMoves, trans);
+        OrderMoves(board, ref legal, ref prioritizedMoves, trans);
 
         bool canUseTranspositions = true, approximate = false, canUse;
         loopvar = 0;
-        foreach (var (_, move) in prioritizedMoves) {
+        foreach (ScoredMove scoredMove in prioritizedMoves) {
             searchCancelled = timer.MillisecondsElapsedThisTurn >= budget && !searchCancelled;
 
             if (searchCancelled)
                 return (bestScore, best, canUseTranspositions);
 
+            Move move = scoredMove.Move;
             board.MakeMove(move);
             try {
                 if (depthLeft >= 3 && ++loopvar >= 4 && !move.IsCapture) {
@@ -686,7 +687,7 @@ public class MyBot : IChessBot
 
         return (bestScore, best, canUseTranspositions);
     }
-    void OrderMoves(Board board, ref Span<Move> legals, ref Span<(float, Move)> prioritizedMoves, Entry trans) {
+    void OrderMoves(Board board, ref Span<Move> legals, ref Span<ScoredMove> prioritizedMoves, Entry trans) {
         int loopvar = 0;
         int totalPieces = CountPiecesOnBoard(board);
 
@@ -715,7 +716,7 @@ public class MyBot : IChessBot
 
             // Encourage central control
             if ((isOpening || isMidgame) && targetSquare.File >= 3 && targetSquare.File <= 4 && targetSquare.Rank >= 3 && targetSquare.Rank <= 4) {
-                moveScore += 0.65f * (1 - endgameT);
+                moveScore += 0.75f * (1 - endgameT);
             }
 
             // Prioritize pawn advances with endgameT scaling
@@ -725,44 +726,79 @@ public class MyBot : IChessBot
 
             // Castling
             if ((isOpening || isMidgame) && lmove.IsCastles) {
-                moveScore += .8f;
+                moveScore += .75f;
             }
 
             // Promotion
-            if (lmove.PromotionPieceType == PieceType.Queen) {
+            if (lmove.IsPromotion) {
                 moveScore += 5;
             }
 
             // Capture evaluation
-            //if (capturePieceType != PieceType.None) {
-            //    float captureValue = pieceValues[(int)movePieceType] / 100f;
-            //    float attackerValue = pieceValues[(int)capturePieceType] / 100f;
-            //    float materialExchange = captureValue - attackerValue;
-            //    bool canRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
+            if (lmove.IsCapture) {
+                float captureValue = pieceValues[(int)movePieceType] / 100f;
+                float attackerValue = pieceValues[(int)capturePieceType] / 100f;
+                float materialExchange = captureValue - attackerValue;
+                //bool opponentCanRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
 
-            //    if (!canRecapture) {
-            //        moveScore += captureValue * 1.2f;
-            //    }
-            //    else {
-            //        if (materialExchange > 0) {
-            //            moveScore += materialExchange;
-            //        }
-            //        else if (materialExchange == 0) {
-            //            moveScore += captureValue / 1.3f;
-            //        }
-            //        else {
-            //            moveScore += captureValue / 2f;
-            //        }
-            //    }
-            //}
+                //moveScore += captureValue * ((materialExchange < 0 && opponentCanRecapture) ? 0.5f : 1.2f) * (materialExchange / 8f + 1);
+                float captureBias = materialExchange / 10f + 1;
+                moveScore += captureValue * captureBias;
+            }
 
-            moveScore += (0x0953310 >> 4 * (int)lmove.CapturePieceType) & 0xf;
+            //moveScore += pieceValues[(int)capturePieceType] / 100f;
+            //moveScore += (0x0953310 >> 4 * (int)lmove.CapturePieceType) & 0xf;
 
-            prioritizedMoves[loopvar++] = (moveScore, lmove);
+            //prioritizedMoves[loopvar++] = (moveScore, lmove);
+            prioritizedMoves[loopvar++] = new ScoredMove(moveScore, lmove);
+        }
+        // Hybrid Sorting
+        if (prioritizedMoves.Length <= 7) {
+            InsertionSort(ref prioritizedMoves);
+        }
+        else {
+            QuickSort(ref prioritizedMoves, 0, prioritizedMoves.Length - 1);
+        }
+    }
+    void InsertionSort(ref Span<ScoredMove> moves) {
+        for (int i = 1; i < moves.Length; i++) {
+            var key = moves[i];
+            int j = i - 1;
+
+            while (j >= 0 && moves[j].Score < key.Score) {
+                moves[j + 1] = moves[j];
+                j--;
+            }
+            moves[j + 1] = key;
+        }
+    }
+    void QuickSort(ref Span<ScoredMove> data, int left, int right) {
+        if (left < right) {
+            int pivotIndex = Partition(ref data, left, right);
+            QuickSort(ref data, left, pivotIndex - 1);
+            QuickSort(ref data, pivotIndex + 1, right);
+        }
+    }
+
+    int Partition(ref Span<ScoredMove> data, int left, int right) {
+        ScoredMove pivot = data[right];
+        int i = left - 1;
+
+        for (int j = left; j < right; j++) {
+            if (data[j].Score > pivot.Score) { // Descending order
+                i++;
+                Swap(ref data[i], ref data[j]);
+            }
         }
 
-        // Sort the moves based on the calculated scores
-        prioritizedMoves.Sort((a, b) => -a.Item1.CompareTo(b.Item1));
+        Swap(ref data[i + 1], ref data[right]);
+        return i + 1;
+    }
+
+    void Swap(ref ScoredMove a, ref ScoredMove b) {
+        ScoredMove temp = a;
+        a = b;
+        b = temp;
     }
 
     public Move Think(Board b, Timer t) {
@@ -1024,6 +1060,16 @@ public class MyBot : IChessBot
         public ulong Key;
         public short Score, Depth;
         public Move Move;
+    }
+    struct ScoredMove
+    {
+        public float Score;
+        public Move Move;
+
+        public ScoredMove(float score, Move move) {
+            Score = score;
+            Move = move;
+        }
     }
     public static class PrecomputedEvaluationData 
     {

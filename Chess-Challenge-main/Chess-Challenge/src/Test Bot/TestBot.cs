@@ -4,13 +4,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using static System.Math;
 
 namespace ChessChallenge.Example
 {
     // A simple bot that can spot mate in one, and always captures the most valuable piece it can.
     // Plays randomly otherwise.
-    public class EvilBot : IChessBot
+    public class TestBot : IChessBot
     {
         static Entry[] _transpositions = new Entry[16777216];
         float _budgetCounter = 121, budget;
@@ -153,7 +154,6 @@ namespace ChessChallenge.Example
         public Move Think(Board b, Timer t) {
             board = b;
             timer = t;
-            //budget = Min(0.033333333333333333333333f, 2.0f / --_budgetCounter) * t.MillisecondsRemaining;
             budget = 100;
             _outOfTime = false;
 
@@ -183,6 +183,5 @@ namespace ChessChallenge.Example
             public short Score, Depth;
             public Move Move;
         }
-
     }
 }
