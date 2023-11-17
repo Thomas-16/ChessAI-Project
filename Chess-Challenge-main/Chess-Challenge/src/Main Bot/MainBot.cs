@@ -1,12 +1,9 @@
 ﻿using ChessChallenge.API;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Numerics;
-using static System.Formats.Asn1.AsnWriter;
 using static System.Math;
 
 public class MainBot : IChessBot
@@ -578,12 +575,12 @@ public class MainBot : IChessBot
     }
     #endregion
 
-    (int, Move, bool) Search(int depthLeft, int checkExtensionsLeft, bool isCaptureOnly, int alpha = -32200, int beta = 32200) {
+    SearchReturn Search(int depthLeft, int checkExtensionsLeft, bool isCaptureOnly, int alpha = -32200, int beta = 32200) {
         if (board.IsInCheckmate())
-            return (-32100, default, true);
+            return new SearchReturn(-32100, default, true);
 
         if (board.IsDraw())
-            return (0, default, board.IsInStalemate() || board.IsInsufficientMaterial());
+            return new SearchReturn(0, default, board.IsInStalemate() || board.IsInsufficientMaterial());
 
         if (depthLeft == 0) {
             ++depthLeft;
@@ -592,7 +589,7 @@ public class MainBot : IChessBot
             else if (!isCaptureOnly && checkExtensionsLeft == 4)
                 return Search(8, checkExtensionsLeft, true, alpha, beta);
             else
-                return (EvaluateBoard(), default, true);
+                return new SearchReturn(EvaluateBoard(), default, true);
         }
 
         ulong key = board.ZobristKey;
@@ -610,12 +607,12 @@ public class MainBot : IChessBot
                 alpha = Max(alpha, bestScore = trans.Score);
                 best = trans.Move;
                 if (beta < alpha || trans.Depth >= 0)
-                    return (trans.Score, trans.Move, true);
+                    return new SearchReturn(trans.Score, trans.Move, true);
             }
         }
 
         if (isCaptureOnly && (score = EvaluateBoard()) > bestScore && beta < (alpha = Max(alpha, bestScore = score)))
-            return (score, default, true);
+            return new SearchReturn(score, default, true);
 
         Span<Move> legal = stackalloc Move[256];
         board.GetLegalMovesNonAlloc(ref legal, isCaptureOnly);
@@ -641,13 +638,13 @@ public class MainBot : IChessBot
             searchCancelled = timer.MillisecondsElapsedThisTurn >= budget && !searchCancelled;
 
             if (searchCancelled)
-                return (bestScore, best, canUseTranspositions);
+                return new SearchReturn(bestScore, best, canUseTranspositions);
 
             Move move = scoredMove.Move;
             board.MakeMove(move);
             try {
                 if (depthLeft >= 3 && ++loopvar >= 4 && !move.IsCapture) {
-                    score = -Search(depthLeft - 2, checkExtensionsLeft, isCaptureOnly, -beta, -alpha).Item1;
+                    score = -Search(depthLeft - 2, checkExtensionsLeft, isCaptureOnly, -beta, -alpha).Score;
 
                     if (searchCancelled)
                         break;
@@ -655,7 +652,9 @@ public class MainBot : IChessBot
                     if (score < bestScore)
                         continue;
                 }
-                (score, _, canUse) = Search(depthLeft - 1, checkExtensionsLeft, isCaptureOnly, -beta, -alpha);
+                SearchReturn searchReturn = Search(depthLeft - 1, checkExtensionsLeft, isCaptureOnly, -beta, -alpha);
+                score = searchReturn.Score;
+                canUse = searchReturn.CanUseTranspositions;
 
                 if (searchCancelled)
                     break;
@@ -685,7 +684,7 @@ public class MainBot : IChessBot
             transCount++;
         }
 
-        return (bestScore, best, canUseTranspositions);
+        return new SearchReturn(bestScore, best, canUseTranspositions);
     }
     void OrderMoves(Board board, ref Span<Move> legals, ref Span<ScoredMove> prioritizedMoves, Entry trans) {
         int loopvar = 0;
@@ -735,18 +734,18 @@ public class MainBot : IChessBot
             }
 
             // Capture evaluation
-            if (lmove.IsCapture) {
-                float captureValue = pieceValues[(int)movePieceType] / 100f;
-                float attackerValue = pieceValues[(int)capturePieceType] / 100f;
-                float materialExchange = captureValue - attackerValue;
-                //bool opponentCanRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
+            //if (lmove.IsCapture) {
+            //    float captureValue = pieceValues[(int)movePieceType] / 100f;
+            //    float attackerValue = pieceValues[(int)capturePieceType] / 100f;
+            //    float materialExchange = captureValue - attackerValue;
+            //    //bool opponentCanRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
 
-                //moveScore += captureValue * ((materialExchange < 0 && opponentCanRecapture) ? 0.5f : 1.2f) * (materialExchange / 8f + 1);
-                float captureBias = materialExchange / 10f + 1;
-                moveScore += captureValue * captureBias;
-            }
+            //    //moveScore += captureValue * ((materialExchange < 0 && opponentCanRecapture) ? 0.5f : 1.2f) * (materialExchange / 8f + 1);
+            //    float captureBias = materialExchange / 10f + 1;
+            //    moveScore += captureValue * captureBias;
+            //}
 
-            //moveScore += pieceValues[(int)capturePieceType] / 100f;
+            moveScore += pieceValues[(int)capturePieceType] / 100f;
             //moveScore += (0x0953310 >> 4 * (int)lmove.CapturePieceType) & 0xf;
 
             //prioritizedMoves[loopvar++] = (moveScore, lmove);
@@ -900,7 +899,7 @@ public class MainBot : IChessBot
             maxDepth = 33;
         }
         while (++depth <= maxDepth && !searchCancelled)
-            if ((move = Search(depth, 4, false).Item2) != default)
+            if ((move = Search(depth, 4, false).Move) != default)
                 bestMove = move;
 
         if (bestMove == default) {
@@ -1069,6 +1068,18 @@ public class MainBot : IChessBot
         public ScoredMove(float score, Move move) {
             Score = score;
             Move = move;
+        }
+    }
+    struct SearchReturn
+    {
+        public int Score;
+        public Move Move;
+        public bool CanUseTranspositions;
+
+        public SearchReturn(int score, Move move, bool canUseTranspositions) {
+            Score = score;
+            Move = move;
+            CanUseTranspositions = canUseTranspositions;
         }
     }
     public static class PrecomputedEvaluationData 
