@@ -15,6 +15,7 @@ public class MainBot : IChessBot
     const bool determinedFirstTwoMoves = false;
 
     static readonly int[] pieceValues = { 0, 100, 320, 330, 500, 900, 20000 };
+    static readonly float[] capturePieceValues = { 0, 1f, 3.2f, 3.3f, 5.25f, 10f, 3.2f };
     static readonly PieceType[] pieceTypes = { PieceType.None, PieceType.Pawn, PieceType.Knight, PieceType.Bishop, PieceType.Rook, PieceType.Queen, PieceType.King };
     static readonly ulong whiteTerritoryMask = 0x00000000FFFFFFFF; // The bottom 4 ranks (1-4)
     static readonly ulong blackTerritoryMask = 0xFFFFFFFF00000000; // The top 4 ranks (5-8)
@@ -32,8 +33,8 @@ public class MainBot : IChessBot
     Board board;
     HashSet<Move> _killerMoves = new();
 
-    private static readonly string openingBookPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "resources", "Book.txt");
-    private OpeningBook openingBook = new(File.ReadAllText(openingBookPath));
+    static readonly string openingBookPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "resources", "Book.txt");
+    OpeningBook openingBook = new(File.ReadAllText(openingBookPath));
 
     // Square values can be calculated by bit shifting
     ulong centerSquares = ((ulong)1 << new Square("e4").Index)
@@ -131,7 +132,9 @@ public class MainBot : IChessBot
                     double prob = weights[i] / weightSum;
                     probCumul[i] = probCumul[Math.Max(0, i - 1)] + prob;
                     string debugString = $"{moves[i].moveString}: {prob * 100:0.00}% (cumul = {probCumul[i]})";
-                    // Console.WriteLine(debugString);
+                    if (printDebug) {
+                        Console.WriteLine(debugString);
+                    }
                 }
 
 
@@ -331,7 +334,7 @@ public class MainBot : IChessBot
         //}
 
 
-        return (int)Round(isWhiteToMove ? score : -score);
+        return (int) Round(isWhiteToMove ? score : -score);
     }
 
     #region Evaluation Helpers
@@ -712,7 +715,6 @@ public class MainBot : IChessBot
             else if (_killerMoves.Contains(lmove)) {
                 moveScore += 500;
             }
-
             // Encourage central control
             if ((isOpening || isMidgame) && targetSquare.File >= 3 && targetSquare.File <= 4 && targetSquare.Rank >= 3 && targetSquare.Rank <= 4) {
                 moveScore += 0.75f * (1 - endgameT);
@@ -734,31 +736,34 @@ public class MainBot : IChessBot
             }
 
             // Capture evaluation
-            //if (lmove.IsCapture) {
-            //    float captureValue = pieceValues[(int)movePieceType] / 100f;
-            //    float attackerValue = pieceValues[(int)capturePieceType] / 100f;
-            //    float materialExchange = captureValue - attackerValue;
-            //    //bool opponentCanRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
+            if (lmove.IsCapture) {
+                float capturePieceValue = capturePieceValues[(int)capturePieceType];
+                float attackerPieceValue = capturePieceValues[(int)movePieceType];
+                float materialExchange = capturePieceValue - attackerPieceValue;
+                bool opponentCanRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
 
-            //    //moveScore += captureValue * ((materialExchange < 0 && opponentCanRecapture) ? 0.5f : 1.2f) * (materialExchange / 8f + 1);
-            //    float captureBias = materialExchange / 10f + 1;
-            //    moveScore += captureValue * captureBias;
-            //}
+                //moveScore += captureValue * ((materialExchange < 0 && opponentCanRecapture) ? 0.5f : 1.2f) * (materialExchange / 8f + 1);
+                float captureBias = (materialExchange / 17f + 1) * ((materialExchange < 0 && opponentCanRecapture) ? .75f : 1.05f);
+                moveScore += capturePieceValue * captureBias;
+                //Console.WriteLine($"{movePieceType} {capturePieceType} {materialExchange} {captureBias} {capturePieceValue * captureBias}");
 
-            moveScore += pieceValues[(int)capturePieceType] / 100f;
+                //moveScore += capturePieceValue;
+            }
+
             //moveScore += (0x0953310 >> 4 * (int)lmove.CapturePieceType) & 0xf;
 
             //prioritizedMoves[loopvar++] = (moveScore, lmove);
             prioritizedMoves[loopvar++] = new ScoredMove(moveScore, lmove);
         }
         // Hybrid Sorting
-        if (prioritizedMoves.Length <= 7) {
+        if (prioritizedMoves.Length <= 5) {
             InsertionSort(ref prioritizedMoves);
         }
         else {
             QuickSort(ref prioritizedMoves, 0, prioritizedMoves.Length - 1);
         }
     }
+    #region Sorting Algorithms
     void InsertionSort(ref Span<ScoredMove> moves) {
         for (int i = 1; i < moves.Length; i++) {
             var key = moves[i];
@@ -799,7 +804,7 @@ public class MainBot : IChessBot
         a = b;
         b = temp;
     }
-
+    #endregion
     public Move Think(Board b, Timer t) {
         board = b;
         timer = t;
@@ -862,8 +867,6 @@ public class MainBot : IChessBot
                 }
             }
             if (openingBook.TryGetBookMove(board, out string moveString, 0.3)) {
-                if (printDebug)
-                    Console.WriteLine($"Book: {moveString}");
                 return new Move(moveString, board);
             }
         }
