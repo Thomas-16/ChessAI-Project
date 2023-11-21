@@ -16,8 +16,8 @@ namespace ChessChallenge.Application
         private static CachedSound capture;
         private static CachedSound move;
 
-        private static string capturePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"resources\Sound Effects\Capture.mp3");
-        private static string movePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"resources\Sound Effects\Move.mp3");
+        private static string capturePath = Path.Combine(FileHelper.GetResourcePath(), "Sound Effects", "Capture.mp3");
+        private static string movePath = Path.Combine(FileHelper.GetResourcePath(), "Sound Effects", "Move.mp3");
 
         public static void Initialize() {
             // Initialize players
