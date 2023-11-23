@@ -621,7 +621,7 @@ public class MainBot : IChessBot
             return new SearchReturn(-32100, default, true);
 
         if (board.IsDraw())
-            return new SearchReturn(0, default, board.IsInStalemate() || board.IsInsufficientMaterial());
+            return new SearchReturn(0, default, board.IsInStalemate() || board.IsInsufficientMaterial() || board.IsDraw());
 
         if (depthLeft == 0) {
             ++depthLeft;
@@ -655,7 +655,7 @@ public class MainBot : IChessBot
         if (isCaptureOnly && (score = EvaluateBoard()) > bestScore && beta < (alpha = Max(alpha, bestScore = score)))
             return new SearchReturn(score, default, true);
 
-        Span<Move> legal = stackalloc Move[256];
+        Span<Move> legal = stackalloc Move[218];
         board.GetLegalMovesNonAlloc(ref legal, isCaptureOnly);
 
         Span<ScoredMove> prioritizedMoves = stackalloc ScoredMove[legal.Length];
@@ -699,7 +699,6 @@ public class MainBot : IChessBot
                 best = move;
                 alpha = Max(alpha, score);
                 canUseTranspositions = canUse;
-
 
                 if (approximate = beta < alpha) {
                     _killerMoves.Add(move);
@@ -748,6 +747,7 @@ public class MainBot : IChessBot
             if (lmove.IsPromotion) {
                 moveScore += 5;
             }
+
             // Encourage central control
             if ((isOpening || isMidgame) && targetSquare.File >= 3 && targetSquare.File <= 4 && targetSquare.Rank >= 3 && targetSquare.Rank <= 4) {
                 moveScore += 0.75f * (1 - endgameT);
@@ -913,7 +913,6 @@ public class MainBot : IChessBot
         bool isEndgame = totalPieces <= 15;
         bool isEndEndgame = totalPieces <= 5;
 
-
         int maxDepth = 0;
         int depth = 0;
 
@@ -934,7 +933,8 @@ public class MainBot : IChessBot
                 bestMove = move;
 
         if (bestMove == default) {
-            Console.WriteLine("First in list");
+            if(printDebug)
+                Console.WriteLine("First in list");
 
             bestMove = board.GetLegalMoves()[0];
         }

@@ -26,7 +26,7 @@ namespace ChessChallenge.Application
             }
 
             Raylib.InitWindow(screenWidth, screenHeight, "Chess AI v2.5");
-            Raylib.SetTargetFPS(60);
+            Raylib.SetTargetFPS(120);
 
             UpdateCamera(screenWidth, screenHeight);
 
