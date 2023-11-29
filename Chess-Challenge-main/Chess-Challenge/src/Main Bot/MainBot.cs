@@ -17,7 +17,7 @@ public class MainBot : IChessBot
     const bool determinedFirstTwoMoves = false;
 
     static readonly int[] pieceValues = { 0, 100, 320, 330, 500, 900, 20000 };
-    static readonly float[] capturePieceValues = { 0, 1f, 3.2f, 3.3f, 5.25f, 10f, 3.2f };
+    static readonly float[] capturePieceValues = { 0, 100f, 320f, 330f, 525f, 1000f, 3200f };
     static readonly PieceType[] pieceTypes = { PieceType.None, PieceType.Pawn, PieceType.Knight, PieceType.Bishop, PieceType.Rook, PieceType.Queen, PieceType.King };
     static readonly ulong whiteTerritoryMask = 0x00000000FFFFFFFF; // The bottom 4 ranks (1-4)
     static readonly ulong blackTerritoryMask = 0xFFFFFFFF00000000; // The top 4 ranks (5-8)
@@ -27,6 +27,14 @@ public class MainBot : IChessBot
     static readonly int[] isolatedPawnPenaltyByCount = { 0, -50, -125, -250, -375, -375, -375, -375, -375 };
     static readonly int[] doubledPawnPenaltyByCount = { 0, -60, -140, -269, -375, -375, -375, -375, -375 };
 
+    // Move Ordering constants
+    const int million = 1000000;
+    const int hashMoveScore = 100 * million;
+    const int winningCaptureBias = 8 * million;
+    const int promoteBias = 6 * million;
+    const int killerBias = 4 * million;
+    const int losingCaptureBias = 2 * million;
+
     Entry[] _transpositions = new Entry[16777216];
     static int transCount;
     float _budgetCounter = 121, budget;
@@ -34,6 +42,7 @@ public class MainBot : IChessBot
     Timer timer;
     Board board;
     HashSet<Move> _killerMoves = new();
+    int[,,] _history = new int[2, 64, 64];
 
     static readonly string openingBookPath = Path.Combine(ChessChallenge.Application.FileHelper.GetResourcePath(), "Book.txt");
     OpeningBook openingBook = new(File.ReadAllText(openingBookPath));
@@ -227,7 +236,7 @@ public class MainBot : IChessBot
         //          + (pl.IsWhitePieceList ? 1.0f - ownOneMinusEndgameT : otherOneMinusEndgameT - 1.0f) * EvaluatePieceSquareTable(Ends, pl)
         //        : EvaluatePieceSquareTable(Starts, pl);
 
-        foreach (var pl in board.GetAllPieceLists()) {
+        foreach (PieceList pl in board.GetAllPieceLists()) {
             float pieceListScore;
 
             if (0b1000010 >> (int)pl.TypeOfPieceInList != 0) {
@@ -264,65 +273,58 @@ public class MainBot : IChessBot
         bool isEndEndgame = totalPieces < 13;
         bool isWhiteToMove = board.IsWhiteToMove;
 
-        Square whiteKingSquare = board.GetKingSquare(true);
-        Square blackKingSquare = board.GetKingSquare(false);
+        //Square whiteKingSquare = board.GetKingSquare(true);
+        //Square blackKingSquare = board.GetKingSquare(false);
 
 
-        int whiteCenterControlScore = BitboardHelper.GetNumberOfSetBits(whitePieces & centerSquares);
-        int blackCenterControlScore = BitboardHelper.GetNumberOfSetBits(blackPieces & centerSquares);
+        //int whiteCenterControlScore = BitboardHelper.GetNumberOfSetBits(whitePieces & centerSquares);
+        //int blackCenterControlScore = BitboardHelper.GetNumberOfSetBits(blackPieces & centerSquares);
 
 
-        // In the opening and midgame, add score for center control and subtract for king safety
-        if (isOpening || isMidgame) {
-            float openingScalingFactor = Clamp(totalPieces / 20f, 0f, 1f);
+        //// In the opening and midgame, add score for center control and subtract for king safety
+        //if (isOpening || isMidgame) {
+        //    float openingScalingFactor = Clamp(totalPieces / 20f, 0f, 1f);
 
-            score += (whiteCenterControlScore - blackCenterControlScore) * 16f * openingScalingFactor;
+        //    score += (whiteCenterControlScore - blackCenterControlScore) * 16f * openingScalingFactor;
+        //}
 
-            //if (whiteKingSquare.File >= 4 && whiteKingSquare.File <= 5) {
-            //    score -= 17f * openingScalingFactor;
-            //}
-            //if (blackKingSquare.File >= 4 && blackKingSquare.File <= 5) {
-            //    score += 17f * openingScalingFactor;
-            //}
-        }
+        //ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
+        //ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
+        //ulong allPawns = whitePawns | blackPawns;
 
-        ulong whitePawns = board.GetPieceBitboard(PieceType.Pawn, true);
-        ulong blackPawns = board.GetPieceBitboard(PieceType.Pawn, false);
-        ulong allPawns = whitePawns | blackPawns;
+        //// Doubled Pawns
+        //int whiteDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(whitePawns)];
+        //int blackDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(blackPawns)];
+        //score += whiteDoubledPawnsPenalty - blackDoubledPawnsPenalty;
 
-        // Doubled Pawns
-        int whiteDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(whitePawns)];
-        int blackDoubledPawnsPenalty = doubledPawnPenaltyByCount[CountDoubledPawns(blackPawns)];
-        score += whiteDoubledPawnsPenalty - blackDoubledPawnsPenalty;
+        //// Isolated Pawns
+        //int whiteIsolatedPawnPenalty = isolatedPawnPenaltyByCount[CountIsolatedPawns(whitePawns)];
+        //int blackIsolatedPawnsPenalty = isolatedPawnPenaltyByCount[CountIsolatedPawns(blackPawns)];
+        //score += whiteIsolatedPawnPenalty - blackIsolatedPawnsPenalty;
 
-        // Isolated Pawns
-        int whiteIsolatedPawnPenalty = isolatedPawnPenaltyByCount[CountIsolatedPawns(whitePawns)];
-        int blackIsolatedPawnsPenalty = isolatedPawnPenaltyByCount[CountIsolatedPawns(blackPawns)];
-        score += whiteIsolatedPawnPenalty - blackIsolatedPawnsPenalty;
+        //// Passed Pawns
+        //int whitePassedPawnsBonus = CountPassedPawnsBonuses(whitePawns, blackPawns, true);
+        //int blackPassedPawnsBonus = CountPassedPawnsBonuses(blackPawns, whitePawns, false);
+        //score += whitePassedPawnsBonus - blackPassedPawnsBonus;
 
-        // Passed Pawns
-        int whitePassedPawnsBonus = CountPassedPawnsBonuses(whitePawns, blackPawns, true);
-        int blackPassedPawnsBonus = CountPassedPawnsBonuses(blackPawns, whitePawns, false);
-        score += whitePassedPawnsBonus - blackPassedPawnsBonus;
+        //// Rooks on Open Files
+        //int whiteRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, true), allPawns);
+        //int blackRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, false), allPawns);
+        //score += (whiteRooksOnOpenFiles - blackRooksOnOpenFiles) * 50f;
 
-        // Rooks on Open Files
-        int whiteRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, true), allPawns);
-        int blackRooksOnOpenFiles = CountRooksOnOpenFiles(board.GetPieceBitboard(PieceType.Rook, false), allPawns);
-        score += (whiteRooksOnOpenFiles - blackRooksOnOpenFiles) * 37.5f;
+        //// Bishop Pair
+        //bool whiteHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, true)) >= 2;
+        //bool blackHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, false)) >= 2;
+        //score += (whiteHasBishopPair ? 40 : 0) - (blackHasBishopPair ? 40 : 0);
 
-        // Bishop Pair
-        bool whiteHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, true)) >= 2;
-        bool blackHasBishopPair = BitCount(board.GetPieceBitboard(PieceType.Bishop, false)) >= 2;
-        score += (whiteHasBishopPair ? 20 : 0) - (blackHasBishopPair ? 20 : 0);
+        //// Pawn Shield
+        //float pawnShieldMultiplier = CalculateMultiplier(totalPieces, 18, 22);
+        //if (pawnShieldMultiplier != 0) {
+        //    float whitePawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, whiteKingSquare, true);
+        //    float blackPawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, blackKingSquare, false);
 
-        // Pawn Shield
-        float pawnShieldMultiplier = CalculateMultiplier(totalPieces, 18, 22);
-        if (pawnShieldMultiplier != 0) {
-            float whitePawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, whiteKingSquare, true);
-            float blackPawnShieldMissingCount = EvaluateMissingPawnShieldCount(board, blackKingSquare, false);
-
-            score += ((whitePawnShieldMissingCount * -20f) - (blackPawnShieldMissingCount * -20f)) * pawnShieldMultiplier;
-        }
+        //    score += ((whitePawnShieldMissingCount * -25f) - (blackPawnShieldMissingCount * -25f)) * pawnShieldMultiplier;
+        //}
 
         //// Virtual King Mobility *UNUSED*
         //float virtualKingMobilityMultiplier = CalculateMultiplier(totalPieces, 23, 29);
@@ -337,8 +339,8 @@ public class MainBot : IChessBot
         //score += MopUpEval(allPawns, whiteMatScore, blackMatScore, mopUpMultiplier, whiteKingSquare, blackKingSquare) -
         //    MopUpEval(allPawns, blackMatScore, whiteMatScore, mopUpMultiplier, blackKingSquare, whiteKingSquare);
 
-        // Space (How to win at Chess P.112) and King Safety *UNUSED*
-        //float spaceFactor = 1 - CalculateMultiplier(totalPieces, 13, 20);
+        //// Space (How to win at Chess P.112) and King Safety *UNUSED*
+        //float spaceFactor = 1 - CalculateMultiplier(totalPieces, 14, 20);
         //if (spaceFactor <= 0f) {
         //    ulong whitePiecesViewInEnemyTerritory = 0;
         //    ulong blackPiecesViewInEnemyTerritory = 0;
@@ -346,7 +348,7 @@ public class MainBot : IChessBot
         //    ulong blackMask = blackTerritoryMask;
         //    ulong whiteMask = whiteTerritoryMask;
 
-        //    foreach (PieceType pieceType in Enum.GetValues(typeof(PieceType))) {
+        //    foreach (PieceType pieceType in pieceTypes) {
         //        if (pieceType == PieceType.None || pieceType == PieceType.King || pieceType == PieceType.Knight || pieceType == PieceType.Pawn) continue;
 
         //        ulong whitePiecesBB = board.GetPieceBitboard(pieceType, true);
@@ -356,16 +358,18 @@ public class MainBot : IChessBot
         //            Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref whitePiecesBB));
         //            ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, true);
         //            whitePiecesViewInEnemyTerritory |= attacks & blackMask;
+        //            whitePiecesViewInEnemyTerritory &= ~whitePieces;
         //        }
 
         //        while (blackPiecesBB != 0) {
         //            Square square = new Square(BitboardHelper.ClearAndGetIndexOfLSB(ref blackPiecesBB));
         //            ulong attacks = BitboardHelper.GetPieceAttacks(pieceType, square, board, false);
         //            blackPiecesViewInEnemyTerritory |= attacks & whiteMask;
+        //            blackPiecesViewInEnemyTerritory &= ~blackPieces;
         //        }
         //    }
 
-        //    score += (BitboardHelper.GetNumberOfSetBits(whitePiecesViewInEnemyTerritory) - BitboardHelper.GetNumberOfSetBits(blackPiecesViewInEnemyTerritory)) * 33f * spaceFactor;
+        //    score += (BitboardHelper.GetNumberOfSetBits(whitePiecesViewInEnemyTerritory) - BitboardHelper.GetNumberOfSetBits(blackPiecesViewInEnemyTerritory)) * 20f * spaceFactor;
 
         //}
 
@@ -471,11 +475,18 @@ public class MainBot : IChessBot
     }
 
 
-    ulong EvaluatePieceSquareTable(ulong[][] table, PieceList pl) {
-        ulong value = 0;
-        foreach (var p in pl) {
-            var sq = p.Square;
-            value += table[(int)p.PieceType][sq.File >= 4 ? 7 - sq.File : sq.File] << 8 * (pl.IsWhitePieceList ? 7 - sq.Rank : sq.Rank) >> 56;
+    float EvaluatePieceSquareTable(ulong[][] table, PieceList pl) {
+        float value = 0;
+        foreach (Piece p in pl) {
+            Square sq = p.Square;
+            float pieceActivityMultiplier = 1f;
+
+            //if (p.PieceType == PieceType.Bishop || p.PieceType == PieceType.Rook || p.PieceType == PieceType.Queen) {
+            //    int pieceVision = BitCount(BitboardHelper.GetPieceAttacks(p.PieceType, sq, board, p.IsWhite) & ~(p.IsWhite ? board.WhitePiecesBitboard : board.BlackPiecesBitboard));
+            //    pieceActivityMultiplier = Clamp(pieceVision / 3f + .22f, 0f, 1f);
+            //}
+
+            value += (table[(int)p.PieceType][sq.File >= 4 ? 7 - sq.File : sq.File] << 8 * (pl.IsWhitePieceList ? 7 - sq.Rank : sq.Rank) >> 56) * pieceActivityMultiplier;
         }
         return 25 * value;
     }
@@ -621,7 +632,7 @@ public class MainBot : IChessBot
             return new SearchReturn(-32100, default, true);
 
         if (board.IsDraw())
-            return new SearchReturn(0, default, board.IsInStalemate() || board.IsInsufficientMaterial() || board.IsDraw());
+            return new SearchReturn(0, default, board.IsInStalemate() || board.IsInsufficientMaterial());
 
         if (depthLeft == 0) {
             ++depthLeft;
@@ -702,6 +713,9 @@ public class MainBot : IChessBot
 
                 if (approximate = beta < alpha) {
                     _killerMoves.Add(move);
+
+                    int moveColourIndex = board.IsWhiteToMove ? 0 : 1;
+                    _history[moveColourIndex, move.StartSquare.Index, move.TargetSquare.Index] += depthLeft * depthLeft;
                     break;
                 }
             }
@@ -736,49 +750,53 @@ public class MainBot : IChessBot
 
             // Transposition table move
             if (zobristKey == trans.Key && lmove == trans.Move) {
-                moveScore += 5000;
+                prioritizedMoves[loopvar++] = new ScoredMove(hashMoveScore, lmove);
+                continue;
             }
             // Killer moves
             else if (_killerMoves.Contains(lmove)) {
-                moveScore += 500;
+                moveScore += killerBias;
             }
 
             // Promotion
             if (lmove.IsPromotion) {
-                moveScore += 5;
+                moveScore += promoteBias;
             }
 
-            // Encourage central control
-            if ((isOpening || isMidgame) && targetSquare.File >= 3 && targetSquare.File <= 4 && targetSquare.Rank >= 3 && targetSquare.Rank <= 4) {
-                moveScore += 0.75f * (1 - endgameT);
-            }
+            //// Encourage central control
+            //if ((isOpening || isMidgame) && targetSquare.File >= 3 && targetSquare.File <= 4 && targetSquare.Rank >= 3 && targetSquare.Rank <= 4) {
+            //    moveScore += 75f * (1 - endgameT);
+            //}
 
-            // Prioritize pawn advances with endgameT scaling
-            if (movePieceType == PieceType.Pawn && !isOpening) {
-                moveScore += (movePiece.IsWhite ? targetSquare.Rank : 7 - targetSquare.Rank) * 0.5f * endgameT;
-            }
+            //// Prioritize pawn advances with endgameT scaling
+            //if (movePieceType == PieceType.Pawn && !isOpening) {
+            //    moveScore += (movePiece.IsWhite ? targetSquare.Rank : 7 - targetSquare.Rank) * 50f * endgameT;
+            //}
 
-            // Castling
-            if ((isOpening || isMidgame) && lmove.IsCastles) {
-                moveScore += .75f;
-            }
+            //// Castling
+            //if ((isOpening || isMidgame) && lmove.IsCastles) {
+            //    moveScore += 75f;
+            //}
 
-            // Capture evaluation
-            if (lmove.IsCapture) {
-                float capturePieceValue = capturePieceValues[(int)capturePieceType];
-                float attackerPieceValue = capturePieceValues[(int)movePieceType];
-                float materialExchange = capturePieceValue - attackerPieceValue;
-                bool opponentCanRecapture = board.SquareIsAttackedByOpponent(lmove.TargetSquare);
+            //// Capture evaluation
+            //if (lmove.IsCapture) {
+            //    // Order moves to try capturing the most valuable opponent piece with least valuable of own pieces first
+            //    float captureMaterialDelta = capturePieceValues[(int)capturePieceType] - capturePieceValues[(int)movePieceType];
+            //    bool opponentCanRecapture = board.SquareIsAttackedByOpponent(targetSquare);
+            //    if (opponentCanRecapture) {
+            //        moveScore += (captureMaterialDelta >= 0 ? winningCaptureBias : losingCaptureBias) + captureMaterialDelta;
+            //    }
+            //    else {
+            //        moveScore += winningCaptureBias + captureMaterialDelta;
+            //    }
+            //}
+            //// History Heuristic
+            //else {
+            //    int moveColourIndex = board.IsWhiteToMove ? 0 : 1;
+            //    moveScore += _history[moveColourIndex, lmove.StartSquare.Index, lmove.TargetSquare.Index];
+            //}
 
-                //moveScore += captureValue * ((materialExchange < 0 && opponentCanRecapture) ? 0.5f : 1.2f) * (materialExchange / 8f + 1);
-                float captureBias = (materialExchange / 17f + 1) * ((materialExchange < 0 && opponentCanRecapture) ? .75f : 1.05f);
-                moveScore += capturePieceValue * captureBias;
-                //Console.WriteLine($"{movePieceType} {capturePieceType} {materialExchange} {captureBias} {capturePieceValue * captureBias}");
-
-                //moveScore += capturePieceValue;
-            }
-
-            //moveScore += (0x0953310 >> 4 * (int)lmove.CapturePieceType) & 0xf;
+            moveScore += ((0x0953310 >> 4 * (int)lmove.CapturePieceType) & 0xf) * 100;
 
             //prioritizedMoves[loopvar++] = (moveScore, lmove);
             prioritizedMoves[loopvar++] = new ScoredMove(moveScore, lmove);
@@ -905,6 +923,8 @@ public class MainBot : IChessBot
         searchCancelled = false;
 
         _killerMoves.Clear();
+        _history = new int[2, 64, 64];
+
         Move bestMove = default, move;
         int totalPieces = CountPiecesOnBoard(board);
 
