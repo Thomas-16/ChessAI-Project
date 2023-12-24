@@ -947,29 +947,9 @@ public class MainBot : IChessBot
         _history = new int[2, 64, 64];
 
         Move bestMove = default, move;
-        int totalPieces = CountPiecesOnBoard(board);
 
-        bool isOpening = totalPieces > 29;
-        bool isMidgame = totalPieces <= 29 && totalPieces > 15;
-        bool isEndgame = totalPieces <= 15;
-        bool isEndEndgame = totalPieces <= 5;
-
-        int maxDepth = 0;
         int depth = 0;
-
-        if (isOpening) {
-            maxDepth = 15;
-        }
-        else if (isMidgame) {
-            maxDepth = 16;
-        }
-        else if (isEndgame) {
-            maxDepth = 30;
-        }
-        else if (isEndEndgame) {
-            maxDepth = 33;
-        }
-        while (++depth <= maxDepth && !searchCancelled)
+        while (++depth <= 33 && !searchCancelled)
             if ((move = Search(depth, 4, false).Move) != default)
                 bestMove = move;
 
